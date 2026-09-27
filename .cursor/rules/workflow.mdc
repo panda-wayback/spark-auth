@@ -18,18 +18,18 @@ alwaysApply: true
 | `.cursor/rules/workflow.mdc` | 本文件：判断、方案先行、清废弃、调度 |
 | `.cursor/rules/skill-writing.mdc` | 自维护 Skill 写法 |
 | `.cursor/skills/doc-node-graph/` | `docs/` 怎么写、怎么推进 |
-| `.cursor/skills/ai-friendly-codebase/` | `AI.md` 约定与模板、上层极简 |
+| `.cursor/skills/ai-friendly-codebase/` | 递归 `spec.yaml` + `AI.md` 代码索引、上层极简 |
 | `.cursor/skills/ui-ux-pro-max/` | UI/UX 设计辅助（导入 Skill，原样拷贝） |
 
 另属通用、但不靠「拷贝旧仓正文」获得：
 
 - 目录约定：每个项目都有 `docs/`；先完善 `docs/` 再写代码
-- 新仓用 `ai-friendly-codebase/templates/` 生成空 `AI.md`，禁止拷贝他仓已填业务的 `AI.md` / `docs` 正文
+- 新仓用 `ai-friendly-codebase/templates/` 生成空 `spec.yaml` + `AI.md`，禁止拷贝他仓已填业务的索引 / `docs` 正文
 
 **不通用 = 某一产品已经写进去的内容（禁止写进通用 `.cursor` 文件）**
 
 - 本仓 `docs/**` 已写的能力页正文（目标、业务步骤、产品名词）
-- 本仓已填的 `AI.md` 树（代码索引内容）
+- 本仓已填的 `spec.yaml` / `AI.md` 树（代码索引内容）
 - 仅本仓成立的业务禁令 / 模块表 / 依赖特例（写在本仓 `docs/`；确有必要时再另建本仓 rule，勿改通用包）
 
 ## Agent 判断
@@ -59,7 +59,7 @@ Agent 给最佳方案 → 用户裁定合理 → 写 docs/（完备）→ 再按
 ```
 
 1. 新功能 / 改产品逻辑或架构：禁止先写代码；先按上式入 `docs/`。
-2. **架构契约**（模块边界、接口/事件、状态机、版本与作废、允许的依赖方向）必须先写入对应 `docs/` 能力页并裁定完备，禁止边写薄文档边写实现。
+2. **架构契约**（模块边界、接口/事件、状态机、版本与作废、允许的依赖方向）必须先写入对应 `docs/` 能力页并裁定完备，禁止边写薄文档边写实现。伪软件裁定后，模块级契约迁入各模块 `spec.yaml`，docs 改为链接；此后 `spec.yaml` 视同 docs，改它同样须裁定。
 3. 实现以当前 `docs/` 为准；禁止未裁定就改已定方案。
 4. 实现中发现方案问题 → 先给最佳判断 → 裁定后 `改 docs → 改代码`；禁止偷偷改设计。
 5. 可直接改代码：Bug / 重构 / 性能 / 测试；以及 **docs 未点名** 且无调用的私有/薄包装删除。
@@ -69,16 +69,19 @@ Agent 给最佳方案 → 用户裁定合理 → 写 docs/（完备）→ 再按
 
 ## 清废弃代码
 
-1. 按根 `AI.md` 全树顺序逐包：叶子 `AI.md` → 该包实现 → 下一包。
-2. 禁止跨包无目标全局搜、禁止无叶子指引通读整树。
+1. 按根 `spec.yaml` 的 `modules` 顺序逐层逐包：该包 `spec.yaml` → 该包实现 → 下一包。
+2. 禁止跨包无目标全局搜、禁止无索引指引通读整树。
 3. 删改范围同时遵「方案先行」第 5～6 条。
 
 ## 何时 Read Skill
 
 | 触发 | Skill |
 |---|---|
-| 探讨方案、写/改 `docs/**`、选下一步、docs 收敛 | `.cursor/skills/doc-node-graph/SKILL.md` |
-| 写/审 `AI.md`、按索引找代码、判上层是否过厚 | `.cursor/skills/ai-friendly-codebase/SKILL.md` |
+| 首次接触 docs 体系 / 不确定该读哪个下层文件 | `.cursor/skills/doc-node-graph/SKILL.md` |
+| 开始建/推进某个 docs 节点 | `.cursor/skills/doc-node-graph/writing.md` |
+| 判断 docs 是否够进入实现 | `.cursor/skills/doc-node-graph/ready-check.md` |
+| 已裁定且需多模块详细设计 | `.cursor/skills/doc-node-graph/pseudo-software.md` |
+| 写/审 `spec.yaml` / `AI.md`、按索引找代码、判上层是否过厚 | `.cursor/skills/ai-friendly-codebase/SKILL.md` |
 | UI/UX 设计、改界面观感、配色排版动效 | `.cursor/skills/ui-ux-pro-max/SKILL.md` |
 
 产品正文只写在 `docs/`，禁止写进 Skill。细则以 Skill 正文为准；本文件只调度。
@@ -86,8 +89,8 @@ Agent 给最佳方案 → 用户裁定合理 → 写 docs/（完备）→ 再按
 ## 读 / 改代码
 
 ```text
-docs/（方案）→ 根 AI.md 全树 → 叶子 AI.md → 实现文件
+docs/（方案）→ 根 spec.yaml → 逐层子模块 spec.yaml → 实现文件
 ```
 
-细则 → Read `ai-friendly-codebase`。  
-`docs/` = 方案；`AI.md` = 代码索引；行为以代码 + 测试 + docs 为准。
+需理解设计意图或改设计时读对应 `AI.md`。细则 → Read `ai-friendly-codebase`。  
+`docs/` = 方案；`spec.yaml` = 代码索引与契约；`AI.md` = 概括与设计理由；行为以代码 + 测试 + docs 为准。
