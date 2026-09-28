@@ -1,7 +1,7 @@
 ---
 name: pseudo-software
 description: >-
-  伪软件：以 docs 为参考拆成模块并落成 spec.yaml。触发：docs 完成后进入模块设计、改模块契约、写/审 spec.yaml。
+  伪软件：拆模块并落成 spec.yaml。触发：进入模块设计、改模块契约、写/审 spec.yaml。
 ---
 
 # Pseudo Software

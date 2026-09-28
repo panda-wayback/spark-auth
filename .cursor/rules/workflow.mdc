@@ -70,7 +70,7 @@ Agent 给最佳方案 → 用户裁定合理 → 写 docs/（完备）→ 伪软
 | 触发 | Skill |
 |---|---|
 | 探讨方案、写/改 docs、选下一步 | `.cursor/skills/doc-node-graph/SKILL.md` |
-| docs 已裁定进入模块设计、改模块契约、写/审 `spec.yaml` | `.cursor/skills/pseudo-software/SKILL.md` |
+| 进入模块设计、改模块契约、写/审 `spec.yaml` | `.cursor/skills/pseudo-software/SKILL.md` |
 | UI/UX 设计、改界面观感、配色排版动效 | `.cursor/skills/ui-ux-pro-max/SKILL.md` |
 
 产品正文只写在 `docs/`，禁止写进 Skill。细则以 Skill 正文为准；本文件只调度。
