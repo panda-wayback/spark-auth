@@ -14,12 +14,9 @@ output:
 contract:
   - <行为保证>
   - <边界条件>
-  - <失败模式>
+  - <失败场景>
 depends:
   - <依赖模块路径，相对仓库根>
   - ext:<外部能力名>
-errors:
-  - code: <错误码>
-    desc: <描述>
 tests:
   - <独立测试策略>
