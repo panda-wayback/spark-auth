@@ -1,0 +1,11 @@
+{% extends "console/base.html" %}
+
+{% block content %}
+<h1>{{ title }}</h1>
+<p class="sub"><a href="{% url 'console:keys' product.pk %}">← 返回 {{ product.name }}</a></p>
+<div class="card">
+  {% if error %}<h2>重复的 key（{{ keys|length }}）</h2>{% endif %}
+  <textarea rows="18" readonly>{% for key in keys %}{{ key }}
+{% endfor %}</textarea>
+</div>
+{% endblock %}

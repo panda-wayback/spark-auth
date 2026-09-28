@@ -54,10 +54,27 @@ alwaysApply: true
 所有项目统一：先完善 `docs/`，再实现。
 
 ```text
-Agent 给最佳方案 → 用户裁定合理 → 写 docs/（完备）→ 伪软件 → 落成 spec.yaml → 再写代码
+Agent 给最佳方案 → 用户裁定合理 → 写 docs/（完备）→ 伪软件拆分草稿 → 用户裁定 → 落成 spec.yaml → 再写代码
 ```
 
 1. 新功能 / 改产品逻辑或架构：禁止先写代码；先按上式入 `docs/`。
+   - `docs/` 未完成且用户未裁定前，禁止生成 `spec.yaml`，禁止写任何业务代码。
+   - `docs/` 完成后，须先在对话中给出模块拆分草稿，经用户裁定后再落成 `spec.yaml`；禁止在 `docs/` 中再写一份模块拆分。
+
+## docs 目录结构
+
+能力文档按功能分类，服务端与客户端分开，每个能力独立目录，目录内统一用 `README.md`：
+
+```text
+docs/
+  README.md                       # 根能力索引
+  server/key-management/README.md # 服务端能力
+  server/device-binding/README.md
+  client/fingerprint/README.md    # 客户端能力
+  client/activation/README.md
+```
+
+禁止在 `docs/` 根目录下平铺多个能力文档。模块拆分只在对话中进行，落成 `spec.yaml`，禁止在 `docs/` 中重复写模块拆分。
 2. 实现以当前 `docs/` 与 `spec.yaml` 为准；禁止未裁定就改已定方案。
 3. 实现中发现方案问题 → 先给最佳判断 → 裁定后 `改 docs / 改 spec.yaml → 改代码`；禁止偷偷改设计。
 4. 可直接改代码：Bug / 重构 / 性能 / 测试；以及 **docs 未点名** 且无调用的私有/薄包装删除。

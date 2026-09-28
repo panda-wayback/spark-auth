@@ -1,0 +1,41 @@
+{% extends "console/base.html" %}
+
+{% block content %}
+<h1 class="mono">{{ lic.key }}</h1>
+<p class="sub">
+  <a href="{% url 'console:keys' product.pk %}">← 返回 {{ product.name }}</a> ·
+  <span class="tag {{ lic.status }}">{{ lic.status }}</span> ·
+  有效时长 {{ lic.duration_days }} 天 · 到期时间 {{ lic.expires_at|date:"Y-m-d H:i"|default:"未激活" }}
+</p>
+
+<div class="card">
+  <h2>当前绑定设备</h2>
+  {% if lic.activation %}
+    <p>{{ lic.activation.device_info|default:"（无设备信息）" }}</p>
+    <p class="mono muted">{{ lic.activation.device_hash }}</p>
+    <p class="muted">绑定时间 {{ lic.activation.activated_at|date:"Y-m-d H:i" }}</p>
+  {% else %}
+    <p class="muted">未激活</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2>换设备记录（{{ logs|length }}）</h2>
+  {% if logs %}
+  <table>
+    <tr><th>时间</th><th>旧设备</th><th>新设备</th><th>扣减</th><th>到期时间变化</th></tr>
+    {% for log in logs %}
+    <tr>
+      <td class="nowrap">{{ log.created_at|date:"Y-m-d H:i" }}</td>
+      <td>{{ log.old_device_info }} <span class="mono muted">{{ log.old_device_hash|truncatechars:13 }}</span></td>
+      <td>{{ log.new_device_info }} <span class="mono muted">{{ log.new_device_hash|truncatechars:13 }}</span></td>
+      <td class="nowrap">{{ log.penalty_hours }} 小时</td>
+      <td>{{ log.expires_before|date:"Y-m-d H:i" }} → {{ log.expires_after|date:"Y-m-d H:i" }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+    <p class="muted">没有换设备记录</p>
+  {% endif %}
+</div>
+{% endblock %}

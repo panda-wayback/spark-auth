@@ -1,0 +1,25 @@
+{% extends "console/base.html" %}
+
+{% block content %}
+<div class="bar" style="justify-content: space-between;">
+  <h1>软件</h1>
+  <a class="btn primary" href="{% url 'console:product_create' %}">新建软件</a>
+</div>
+{% if products %}
+<table>
+  <tr><th>名称</th><th>标识</th><th>换设备策略</th><th>key 数量</th><th>状态</th><th></th></tr>
+  {% for product in products %}
+  <tr>
+    <td><a href="{% url 'console:keys' product.pk %}">{{ product.name }}</a></td>
+    <td class="mono">{{ product.code }}</td>
+    <td>{{ product.transfer_policy_label }}</td>
+    <td>{{ product.key_count }}</td>
+    <td>{% if product.disabled %}<span class="tag 已禁用">已禁用</span>{% else %}<span class="tag 有效">正常</span>{% endif %}</td>
+    <td><a href="{% url 'console:product_edit' product.pk %}">编辑</a></td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<div class="card muted">还没有软件，点右上角「新建软件」。</div>
+{% endif %}
+{% endblock %}

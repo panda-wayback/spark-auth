@@ -1,0 +1,75 @@
+name: activation
+function: 激活判定、计时与换设备扣减、token 签发与校验、客户端接口
+modules: []
+input:
+  - name: product
+    type: string
+    desc: 客户端上报的 product 标识
+  - name: key
+    type: string
+    desc: 用户输入的 key
+  - name: device_hash
+    type: string
+    desc: 客户端生成的设备指纹哈希，64 位小写十六进制
+  - name: device_info
+    type: string
+    desc: 可读设备信息
+  - name: token
+    type: string
+    desc: 校验时客户端上报的 token
+output:
+  - name: token
+    type: string
+    desc: 激活成功时签发，绑定 product、key、device_hash
+  - name: expires_at
+    type: datetime
+    desc: key 当前到期时间
+  - name: valid
+    type: boolean
+    desc: 校验结果
+  - name: 错误响应
+    type: JSON
+    desc: 统一格式的错误码与说明
+contract:
+  - 客户端接口：激活、校验；无需登录
+  - 激活与校验前检查：product 存在且未禁用、key 存在且属于该 product、key 未禁用、key 未到期
+  - 首次激活：写入激活记录，到期时间 = 当前时间 + 有效时长；不写换设备记录
+  - 同设备再次激活：签发新 token，不扣减、不重新计时、不写换设备记录
+  - 新设备激活且 product 不允许换设备：拒绝
+  - 新设备激活且 product 允许换设备：扣减后到期时间早于当前时间则拒绝且不改动；否则在同一事务内替换激活记录、提前到期时间、追加换设备记录
+  - 校验：token 签名有效，且 token 中的 device_hash 与当前激活记录一致，且激活前检查全部通过
+  - token 使用服务端密钥签名，客户端无法伪造
+depends:
+  - server/keys
+errors:
+  - code: REQUEST_INVALID
+    desc: 请求参数缺失或格式错误
+  - code: PRODUCT_NOT_FOUND
+    desc: product 不存在
+  - code: PRODUCT_DISABLED
+    desc: product 已禁用
+  - code: KEY_NOT_FOUND
+    desc: key 不存在
+  - code: KEY_PRODUCT_MISMATCH
+    desc: key 不属于客户端上报的 product
+  - code: KEY_DISABLED
+    desc: key 已禁用
+  - code: KEY_EXPIRED
+    desc: key 已到期
+  - code: TRANSFER_NOT_ALLOWED
+    desc: product 不允许换设备，新设备激活被拒绝
+  - code: TRANSFER_INSUFFICIENT_TIME
+    desc: 扣减后剩余时长不足，换设备被拒绝
+  - code: DEVICE_MISMATCH
+    desc: 校验时设备与当前激活记录不一致
+  - code: TOKEN_INVALID
+    desc: token 签名或内容无效
+tests:
+  - 首次激活写入到期时间且无换设备记录
+  - 同设备再次激活到期时间不变
+  - 不允许换设备时新设备返回 TRANSFER_NOT_ALLOWED
+  - 允许换设备时到期时间按扣减时长提前，并追加一条完整换设备记录
+  - 剩余时长不足时返回 TRANSFER_INSUFFICIENT_TIME，激活记录与到期时间不变
+  - 换设备后旧设备 token 校验返回 DEVICE_MISMATCH
+  - 篡改 token 返回 TOKEN_INVALID
+  - 接口参数缺失返回 REQUEST_INVALID

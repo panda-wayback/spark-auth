@@ -1,0 +1,16 @@
+{% extends "console/base.html" %}
+
+{% block content %}
+<div class="card form" style="max-width: 360px; margin: 80px auto;">
+  <h1>Spark Auth</h1>
+  <p class="sub">管理员登录</p>
+  <form method="post">
+    {% csrf_token %}
+    {% if form.non_field_errors %}<ul class="errorlist"><li>账号或密码错误</li></ul>{% endif %}
+    <p><label for="id_username">账号</label>{{ form.username }}</p>
+    <p><label for="id_password">密码</label>{{ form.password }}</p>
+    <input type="hidden" name="next" value="{{ next }}">
+    <button class="primary" type="submit">登录</button>
+  </form>
+</div>
+{% endblock %}

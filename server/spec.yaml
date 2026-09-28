@@ -1,0 +1,20 @@
+name: server
+function: Django 服务端：数据与 key 管理、激活与校验接口、管理后台
+modules:
+  - path: keys
+    function: 数据表（product、key、激活记录、换设备记录）与 key 生成、批量生成、导入、导出、禁用
+  - path: activation
+    function: 激活判定、计时与换设备扣减、token 签发与校验、客户端接口
+  - path: console
+    function: 极简管理后台：登录、软件列表、软件的 key 页、key 详情
+input: []
+output: []
+contract:
+  - 所有数据存储在单个 SQLite 数据库
+  - 客户端接口无需登录；所有管理操作只能在登录后台后进行
+  - Django 项目配置与网址路由位于 server 根目录，不单独成模块
+depends: []
+errors: []
+tests:
+  - 组合测试：在 console 创建 product 与 key 后，activation 可完成激活与校验
+  - 组合测试：activation 换设备后，console 的 key 详情页显示新增的换设备记录
