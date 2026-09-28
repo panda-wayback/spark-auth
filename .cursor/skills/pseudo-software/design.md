@@ -1,6 +1,6 @@
 ---
 description: >-
-  伪软件设计：拆模块、写草稿、裁定后落成 spec.yaml。触发：docs 已裁定进入模块设计、改模块契约。
+  伪软件设计：拆模块、写草稿、裁定后落成 spec.yaml。触发：docs 完成后进入模块设计、改模块契约。
 ---
 
 # Pseudo Software — Design
