@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the recursive spec.yaml code index.
+"""Validate the recursive spec.yaml + AI.md code index.
 
 Usage: python3 check_index.py [--root <repo-root>]
 Exit codes: 0 ok, 1 index errors, 2 missing dependency.
@@ -70,6 +70,8 @@ def walk(root: Path) -> tuple[dict[str, list[str]], list[str]]:
 
         spec_path = directory / "spec.yaml"
         where = spec_path.relative_to(root).as_posix()
+        if not (directory / "AI.md").is_file():
+            errors.append(f"{mid}: 缺少 AI.md")
         if not spec_path.is_file():
             errors.append(f"{mid}: 缺少 spec.yaml")
             continue
