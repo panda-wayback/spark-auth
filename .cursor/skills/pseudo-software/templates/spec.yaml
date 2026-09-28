@@ -23,3 +23,5 @@ errors:
     desc: <触发条件与返回值>
 tests:
   - <独立测试策略>
+  - <有子模块时：组合测试>
+  - <有子模块时：Integration Test>

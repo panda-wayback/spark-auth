@@ -25,7 +25,7 @@
 | `contract` | 是，非空 | 行为保证、边界条件、不变式 |
 | `depends` | 是 | 模块写仓库根相对路径；外部能力写 `ext:<名称>`；无则 `[]` |
 | `errors` | 推荐 | 错误码、触发条件、返回值 |
-| `tests` | 是，非空 | 独立测试策略；有子模块时另写组合测试 / Integration Test |
+| `tests` | 是，非空 | 独立测试策略；有子模块时另写组合测试、Integration Test |
 
 根 `spec.yaml` 的 `modules` = 项目地图。
 
