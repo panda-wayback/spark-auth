@@ -1,50 +1,49 @@
 name: keys
-function: 数据表（product、key、激活记录、换设备记录）与 key 生成、批量生成、导入、导出、禁用
+function: 数据表（product、私钥批次、激活记录、换设备记录）与卡密签发、导出
 modules: []
 input:
   - name: product 参数
     type: 标识、名称、是否允许换设备、换设备扣减时长
     desc: 创建或修改 product
-  - name: key 参数
-    type: product、有效时长、数量
-    desc: 单个或批量生成 key
-  - name: import_csv
-    type: CSV 文本
-    desc: 每行一个 key，附目标 product 与统一有效时长
+  - name: 卡密签发参数
+    type: product、有效时长（天）、数量
+    desc: 批量签发卡密，同时生成新的私钥批次
+  - name: 导出批次
+    type: 一个或多个私钥批次
+    desc: 导出所选批次签发的全部卡密
 output:
   - name: 数据记录
-    type: product / key / 激活记录 / 换设备记录
+    type: product / signing_key / activation / transfer_log
     desc: 供 activation 与 console 读写
-  - name: keys
-    type: key 列表
-    desc: 生成或导入结果
+  - name: codes
+    type: 卡密列表
+    desc: 批量签发结果
   - name: export_csv
     type: CSV 文本
-    desc: 列：key、状态、有效时长、到期时间（未激活为空）、当前绑定设备、换设备次数
+    desc: 列：卡密、有效时长、签发时间
 contract:
-  - product 标识唯一；key 字符串全局唯一
-  - 每个 key 最多一条当前激活记录
+  - product 标识唯一；私钥批次标识唯一
+  - 每个卡密最多一条当前激活记录
   - 换设备记录只追加，不提供修改与删除
-  - 生成的 key 随机、难以猜测
-  - 新生成或导入的 key 为未激活状态，无到期时间
-  - 批量生成数量范围 1 至 1000，整批成功或整批不生成
-  - 导入的 key 非空且全局唯一；文件内重复或与已有 key 重复时整批拒绝并返回重复项
-  - 导入整批成功或整批不导入
-  - 修改 product 换设备策略后，对该 product 下所有 key 的后续换设备立即生效
+  - 签发的卡密难以猜测、不可伪造；同一批次内卡密互不相同
+  - 卡密自包含 product 标识、私钥批次标识、签发时间、有效时长
+  - 同一批次的卡密可随时重新导出，内容与签发时一致
+  - 未激活的卡密不持久化；服务端只保存 product、私钥批次、已激活记录、换设备记录
+  - 批量签发数量范围 1 至 1000，整批成功或整批不生成
+  - 修改 product 换设备策略后，对该 product 下所有卡密的后续换设备立即生效
+  - 私钥批次可禁用；禁用后该批次卡密不能用于新激活，已激活记录不受影响
 depends: []
 errors:
   - code: REQUEST_INVALID
-    desc: 有效时长不是不小于 1 的整数（天）
+    desc: 有效时长不是 1 至 36500 之间的整数（天）
   - code: PRODUCT_EXISTS
     desc: product 标识重复
   - code: BATCH_COUNT_INVALID
-    desc: 批量生成数量小于 1 或超过 1000
-  - code: IMPORT_INVALID
-    desc: 导入文件格式错误或含空 key
-  - code: IMPORT_DUPLICATE
-    desc: 导入 key 文件内重复或与已有 key 重复，返回重复项列表
+    desc: 批量签发数量小于 1 或超过 1000
+  - code: CODE_INVALID
+    desc: 卡密格式错误或签名无效
 tests:
-  - 使用临时数据库测试四张表的唯一约束
-  - 批量生成 1 与 1000 成功，0 与 1001 返回 BATCH_COUNT_INVALID
-  - 导入含重复 key 时整批拒绝、库中无新增，并返回重复项
-  - 导出 CSV 列顺序与内容正确，未激活 key 到期时间为空
+  - 使用临时数据库测试唯一约束与换设备记录只追加
+  - 批量签发 1 与 1000 成功且同批卡密互不相同，0 与 1001 返回 BATCH_COUNT_INVALID
+  - 签发的卡密可用对应批次验证并读出 product、有效时长；篡改或用其它批次验证返回 CODE_INVALID
+  - 重新导出的卡密与签发时一致，CSV 列顺序正确

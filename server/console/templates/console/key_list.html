@@ -5,30 +5,33 @@
 <p class="sub">
   <a href="{% url 'console:products' %}">← 软件列表</a> ·
   {{ product.transfer_policy_label }}{% if product.disabled %} · <span class="tag 已禁用">已禁用</span>{% endif %} ·
-  <a href="{% url 'console:product_edit' product.pk %}">编辑软件</a>
+  <a href="{% url 'console:product_edit' product.pk %}">编辑软件</a> ·
+  <a href="{% url 'console:signing_keys' product.pk %}">私钥批次</a>
 </p>
 
 <div class="card actions">
-  <strong>生成 key</strong>
-  <form method="post" action="{% url 'console:key_generate' product.pk %}">
+  <strong>签发卡密</strong>
+  <form method="post" action="{% url 'console:key_issue' product.pk %}">
     {% csrf_token %}
-    数量 {{ generate_form.count }} 有效天数 {{ generate_form.duration_days }}
-    <button class="primary" type="submit">生成</button>
-    <span class="helptext">有效天数{{ generate_form.duration_days.help_text }}</span>
-  </form>
-  <strong>导入 CSV</strong>
-  <form method="post" action="{% url 'console:key_import' product.pk %}" enctype="multipart/form-data">
-    {% csrf_token %}
-    {{ import_form.file }} 有效天数 {{ import_form.duration_days }}
-    <button type="submit">导入</button>
-    <span class="helptext">{{ import_form.file.help_text }}</span>
+    数量 {{ issue_form.count }} 有效天数 {{ issue_form.duration_days }}
+    <button class="primary" type="submit">签发</button>
+    <span class="helptext">有效天数{{ issue_form.duration_days.help_text }}</span>
   </form>
   <strong>导出 CSV</strong>
-  <div><a class="btn" href="{% url 'console:key_export' product.pk %}">下载全部 key</a></div>
+  <form method="get" action="{% url 'console:key_export' product.pk %}">
+    <select name="batch">
+      <option value="">全部批次</option>
+      {% for sk in signing_keys %}
+      <option value="{{ sk.key_id }}">{{ sk.created_at|date:"Y-m-d H:i" }} · {{ sk.count }} 个 · {{ sk.duration_days }} 天</option>
+      {% endfor %}
+    </select>
+    <button type="submit">下载卡密</button>
+  </form>
 </div>
 
+<h2 style="font-size: 16px; margin: 0 0 10px;">已激活记录</h2>
 <form method="get" class="bar">
-  <input type="search" name="q" value="{{ query }}" placeholder="搜索 key">
+  <input type="search" name="q" value="{{ query }}" placeholder="搜索卡密或设备">
   <button type="submit">搜索</button>
   {% if query %}<a href="{% url 'console:keys' product.pk %}">清除</a>{% endif %}
   <span class="muted">共 {{ page.paginator.count }} 个</span>
@@ -37,20 +40,20 @@
 {% if page.object_list %}
 <div class="scroll">
 <table>
-  <tr><th>key</th><th>状态</th><th>有效时长</th><th>到期时间</th><th>当前设备</th><th>换设备次数</th><th></th></tr>
-  {% for lic in page.object_list %}
+  <tr><th>卡密</th><th>状态</th><th>有效时长</th><th>到期时间</th><th>当前设备</th><th>换设备次数</th><th></th></tr>
+  {% for act in page.object_list %}
   <tr>
-    <td class="mono nowrap"><a href="{% url 'console:key_detail' lic.pk %}">{{ lic.key }}</a></td>
-    <td class="nowrap"><span class="tag {{ lic.status }}">{{ lic.status }}</span></td>
-    <td class="nowrap">{{ lic.duration_days }} 天</td>
-    <td class="nowrap">{{ lic.expires_at|date:"Y-m-d H:i"|default:"-" }}</td>
-    <td>{% if lic.activation %}{{ lic.activation.device_info|default:"" }} <span class="mono muted">{{ lic.activation.device_hash|truncatechars:9 }}</span>{% else %}-{% endif %}</td>
-    <td>{{ lic.transfer_count }}</td>
+    <td class="mono nowrap"><a href="{% url 'console:activation_detail' act.pk %}" title="{{ act.code }}">{{ act.code|slice:":6" }}…{{ act.code|slice:"-8:" }}</a></td>
+    <td class="nowrap"><span class="tag {{ act.status }}">{{ act.status }}</span></td>
+    <td class="nowrap">{{ act.duration_days }} 天</td>
+    <td class="nowrap">{{ act.expires_at|date:"Y-m-d H:i"|default:"-" }}</td>
+    <td>{{ act.device_info|default:"" }} <span class="mono muted">{{ act.device_hash|truncatechars:9 }}</span></td>
+    <td>{{ act.transfer_count }}</td>
     <td class="nowrap">
-      <form class="inline" method="post" action="{% url 'console:key_toggle' lic.pk %}">
+      <form class="inline" method="post" action="{% url 'console:activation_toggle' act.pk %}">
         {% csrf_token %}
         <input type="hidden" name="next" value="{{ request.get_full_path }}">
-        <button class="link" type="submit">{% if lic.disabled %}取消禁用{% else %}禁用{% endif %}</button>
+        <button class="link" type="submit">{% if act.disabled %}取消禁用{% else %}禁用{% endif %}</button>
       </form>
     </td>
   </tr>
@@ -65,6 +68,6 @@
 </div>
 {% endif %}
 {% else %}
-<div class="card muted">{% if query %}没有匹配的 key。{% else %}还没有 key，用上面的「生成」或「导入」添加。{% endif %}</div>
+<div class="card muted">{% if query %}没有匹配的激活记录。{% else %}还没有激活记录，用上面的「签发卡密」生成后去客户端激活。{% endif %}</div>
 {% endif %}
 {% endblock %}

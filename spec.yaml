@@ -1,22 +1,22 @@
 name: spark-auth
-function: 按软件管理 key，并将 key 绑定到单台设备的软件激活服务端
+function: 按软件管理自包含卡密，并将已激活卡密绑定到单台设备的软件激活服务端
 modules:
   - path: server
-    function: Django 服务端：数据与 key 管理、激活与校验接口、管理后台
+    function: Django 服务端：product 与私钥批次、卡密激活与校验、管理后台
 input: []
 output: []
 contract:
-  - 一个 key 同一时刻只绑定一台设备
-  - key 有效时长从首次激活开始计算，未激活的 key 不过期
-  - 换设备策略由 key 所属 product 决定
+  - 一个卡密同一时刻只绑定一台设备
+  - 卡密有效时长从首次激活开始计算，未激活的卡密不过期
+  - 换设备策略由卡密所属 product 决定
   - 客户端不在本仓库实现，接入方按 docs/client 规范调用 server/activation 接口
 depends: []
 errors: []
 tests:
-  - Integration Test：模拟接入方通过 HTTP 调用，在后台创建 product 与 key 后激活成功、校验通过
-  - Integration Test：登录后台批量生成 key 并导出 CSV，模拟接入方激活其中一个 key 成功
+  - Integration Test：模拟接入方通过 HTTP 调用，在后台创建 product 与签发卡密后激活成功、校验通过
+  - Integration Test：登录后台批量签发卡密并导出 CSV，模拟接入方激活其中一个卡密成功
   - Integration Test：不允许换设备的 product，第二台设备激活被拒绝
   - Integration Test：允许换设备且扣 1 天的 product，换设备后到期时间提前 1 天、新增一条换设备记录、旧设备校验失败
   - Integration Test：剩余时长不足扣减时换设备被拒绝，原设备仍可用
-  - Integration Test：key 与上报 product 不一致被拒绝；已到期 key 被拒绝
-  - Integration Test：批量生成后导出，再导入另一 product，因 key 重复整批被拒绝
+  - Integration Test：卡密与上报 product 不一致被拒绝；已过期卡密被拒绝
+  - Integration Test：禁用私钥批次后，同批次卡密首次激活被拒绝，但已激活设备仍可校验

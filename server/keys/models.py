@@ -30,62 +30,62 @@ class Product(models.Model):
         return f"允许换设备，每次扣 {self.transfer_penalty_hours} 小时"
 
 
-class LicenseKey(models.Model):
-    STATUS_DISABLED = "已禁用"
-    STATUS_INACTIVE = "未激活"
-    STATUS_ACTIVE = "有效"
-    STATUS_EXPIRED = "已到期"
-
-    key = models.CharField("key", max_length=128, unique=True)
+class SigningKey(models.Model):
+    key_id = models.CharField("批次标识", max_length=16, unique=True)
     product = models.ForeignKey(
-        Product, verbose_name="所属软件", on_delete=models.PROTECT, related_name="keys"
+        Product, verbose_name="所属软件", on_delete=models.PROTECT, related_name="signing_keys"
     )
-    duration_days = models.PositiveIntegerField("有效时长（天）", validators=[MinValueValidator(1)])
-    expires_at = models.DateTimeField("到期时间", null=True, blank=True)
+    private_pem = models.TextField("私钥 PEM")
+    duration_days = models.PositiveIntegerField("卡密有效时长（天）", validators=[MinValueValidator(1)])
+    count = models.PositiveIntegerField("生成数量")
     disabled = models.BooleanField("禁用", default=False)
-    created_at = models.DateTimeField("创建时间", auto_now_add=True)
+    created_at = models.DateTimeField("生成时间", default=timezone.now)
 
     class Meta:
-        verbose_name = "key"
-        verbose_name_plural = "key"
+        verbose_name = "私钥批次"
+        verbose_name_plural = "私钥批次"
         ordering = ["-created_at", "-id"]
 
     def __str__(self):
-        return self.key
+        return f"{self.key_id}（{self.product.code}）"
+
+
+class Activation(models.Model):
+    code = models.CharField("卡密", max_length=255, unique=True)
+    product = models.ForeignKey(
+        Product, verbose_name="所属软件", on_delete=models.PROTECT, related_name="activations"
+    )
+    device_hash = models.CharField("设备指纹", max_length=64)
+    device_info = models.CharField("设备信息", max_length=255, blank=True)
+    duration_days = models.PositiveIntegerField("有效时长（天）", validators=[MinValueValidator(1)])
+    expires_at = models.DateTimeField("到期时间")
+    disabled = models.BooleanField("禁用", default=False)
+    activated_at = models.DateTimeField("激活时间")
+    created_at = models.DateTimeField("创建时间", auto_now_add=True)
+
+    class Meta:
+        verbose_name = "激活记录"
+        verbose_name_plural = "激活记录"
+        ordering = ["-created_at", "-id"]
+
+    def __str__(self):
+        return f"{self.code} → {self.device_hash[:12]}"
 
     def is_expired(self, now=None):
-        return self.expires_at is not None and self.expires_at <= (now or timezone.now())
+        return self.expires_at <= (now or timezone.now())
 
     @property
     def status(self):
         if self.disabled:
-            return self.STATUS_DISABLED
-        if self.expires_at is None:
-            return self.STATUS_INACTIVE
+            return "已禁用"
         if self.is_expired():
-            return self.STATUS_EXPIRED
-        return self.STATUS_ACTIVE
-
-
-class Activation(models.Model):
-    key = models.OneToOneField(
-        LicenseKey, verbose_name="key", on_delete=models.CASCADE, related_name="activation"
-    )
-    device_hash = models.CharField("设备指纹", max_length=64)
-    device_info = models.CharField("设备信息", max_length=255, blank=True)
-    activated_at = models.DateTimeField("绑定时间")
-
-    class Meta:
-        verbose_name = "当前激活记录"
-        verbose_name_plural = "当前激活记录"
-
-    def __str__(self):
-        return f"{self.key} → {self.device_hash[:12]}"
+            return "已到期"
+        return "有效"
 
 
 class TransferLog(models.Model):
-    key = models.ForeignKey(
-        LicenseKey, verbose_name="key", on_delete=models.PROTECT, related_name="transfer_logs"
+    activation = models.ForeignKey(
+        Activation, verbose_name="激活记录", on_delete=models.PROTECT, related_name="transfer_logs"
     )
     old_device_hash = models.CharField("旧设备指纹", max_length=64)
     old_device_info = models.CharField("旧设备信息", max_length=255, blank=True)

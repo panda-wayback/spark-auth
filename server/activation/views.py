@@ -15,7 +15,7 @@ _DEVICE_INFO_MAX = 255
 _STATUS = {
     "REQUEST_INVALID": 400,
     "PRODUCT_NOT_FOUND": 404,
-    "KEY_NOT_FOUND": 404,
+    "SIGNING_KEY_NOT_FOUND": 404,
 }
 
 
@@ -48,10 +48,10 @@ def _parse(request, required):
 @require_POST
 def activate(request):
     try:
-        data = _parse(request, ("product", "key", "device_hash"))
+        data = _parse(request, ("product", "code", "device_hash"))
         token, expires_at = services.activate(
             data["product"].strip(),
-            data["key"].strip(),
+            data["code"].strip(),
             data["device_hash"],
             data.get("device_info", ""),
         )

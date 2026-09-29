@@ -1,0 +1,33 @@
+{% extends "console/base.html" %}
+
+{% block content %}
+<h1>{{ product.name }} · 私钥批次</h1>
+<p class="sub"><a href="{% url 'console:keys' product.pk %}">← 返回卡密页</a></p>
+<p class="helptext" style="margin: -12px 0 16px;">每次签发卡密生成一个批次。禁用后，该批次还没激活的卡密不能再激活；已经激活的设备不受影响。禁用不可恢复。</p>
+
+{% if signing_keys %}
+<table>
+  <tr><th>批次标识</th><th>生成时间</th><th>数量</th><th>有效时长</th><th>状态</th><th></th></tr>
+  {% for sk in signing_keys %}
+  <tr>
+    <td class="mono">{{ sk.key_id }}</td>
+    <td class="nowrap">{{ sk.created_at|date:"Y-m-d H:i" }}</td>
+    <td>{{ sk.count }}</td>
+    <td class="nowrap">{{ sk.duration_days }} 天</td>
+    <td>{% if sk.disabled %}<span class="tag 已禁用">已禁用</span>{% else %}<span class="tag 有效">正常</span>{% endif %}</td>
+    <td class="nowrap">
+      {% if not sk.disabled %}
+      <form class="inline" method="post" action="{% url 'console:signing_key_disable' sk.pk %}"
+            onsubmit="return confirm('禁用后该批次未激活的卡密将无法激活，且不能恢复。确定禁用？');">
+        {% csrf_token %}
+        <button class="link" type="submit">禁用</button>
+      </form>
+      {% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<div class="card muted">还没有批次，在卡密页签发卡密后会出现在这里。</div>
+{% endif %}
+{% endblock %}

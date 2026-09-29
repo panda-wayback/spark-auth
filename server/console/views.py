@@ -1,7 +1,7 @@
 from django.contrib import messages
 from django.contrib.auth.decorators import user_passes_test
 from django.core.paginator import Paginator
-from django.db.models import Count
+from django.db.models import Count, Q
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.http import url_has_allowed_host_and_scheme
@@ -9,9 +9,9 @@ from django.views.decorators.http import require_POST
 
 from keys import services
 from keys.errors import ServiceError
-from keys.models import LicenseKey, Product
+from keys.models import Activation, Product, SigningKey
 
-from .forms import GenerateForm, ImportForm, ProductCreateForm, ProductEditForm
+from .forms import IssueCodesForm, ProductCreateForm, ProductEditForm
 
 PAGE_SIZE = 50
 
@@ -24,9 +24,16 @@ def _first_error(form):
     return "输入有误"
 
 
+def _safe_next(request, fallback):
+    next_url = request.POST.get("next", "")
+    if url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
+        return redirect(next_url)
+    return fallback
+
+
 @admin_required
 def product_list(request):
-    products = Product.objects.annotate(key_count=Count("keys"))
+    products = Product.objects.annotate(active_count=Count("activations"))
     return render(request, "console/product_list.html", {"products": products})
 
 
@@ -56,14 +63,12 @@ def product_edit(request, pk):
 def key_list(request, pk):
     product = get_object_or_404(Product, pk=pk)
     query = request.GET.get("q", "").strip()
-    keys = (
-        product.keys.select_related("activation")
-        .annotate(transfer_count=Count("transfer_logs"))
-        .order_by("-created_at", "-id")
-    )
+    activations = product.activations.annotate(transfer_count=Count("transfer_logs"))
     if query:
-        keys = keys.filter(key__icontains=query)
-    page = Paginator(keys, PAGE_SIZE).get_page(request.GET.get("page"))
+        activations = activations.filter(
+            Q(code__icontains=query) | Q(device_info__icontains=query) | Q(device_hash__icontains=query)
+        )
+    page = Paginator(activations.order_by("-created_at", "-id"), PAGE_SIZE).get_page(request.GET.get("page"))
     return render(
         request,
         "console/key_list.html",
@@ -71,81 +76,84 @@ def key_list(request, pk):
             "product": product,
             "page": page,
             "query": query,
-            "generate_form": GenerateForm(),
-            "import_form": ImportForm(),
+            "issue_form": IssueCodesForm(),
+            "signing_keys": product.signing_keys.all(),
         },
     )
 
 
 @admin_required
 @require_POST
-def key_generate(request, pk):
+def key_issue(request, pk):
     product = get_object_or_404(Product, pk=pk)
-    form = GenerateForm(request.POST)
+    form = IssueCodesForm(request.POST)
     if not form.is_valid():
         messages.error(request, _first_error(form))
         return redirect("console:keys", pk=pk)
     try:
-        created = services.generate_keys(product, form.cleaned_data["duration_days"], form.cleaned_data["count"])
+        signing_key, codes = services.issue_codes(
+            product, form.cleaned_data["duration_days"], form.cleaned_data["count"]
+        )
     except ServiceError as exc:
         messages.error(request, exc.message)
         return redirect("console:keys", pk=pk)
     return render(
         request,
         "console/result.html",
-        {"product": product, "title": f"已生成 {len(created)} 个 key", "keys": [k.key for k in created]},
+        {"product": product, "title": f"已签发 {len(codes)} 个卡密", "codes": codes, "signing_key": signing_key},
     )
-
-
-@admin_required
-@require_POST
-def key_import(request, pk):
-    product = get_object_or_404(Product, pk=pk)
-    form = ImportForm(request.POST, request.FILES)
-    if not form.is_valid():
-        messages.error(request, _first_error(form))
-        return redirect("console:keys", pk=pk)
-    try:
-        created = services.import_keys(product, form.cleaned_data["duration_days"], form.cleaned_data["file"].read())
-    except ServiceError as exc:
-        if exc.code != "IMPORT_DUPLICATE":
-            messages.error(request, exc.message)
-            return redirect("console:keys", pk=pk)
-        return render(
-            request,
-            "console/result.html",
-            {"product": product, "title": exc.message, "error": True, "keys": exc.details},
-        )
-    messages.success(request, f"已导入 {len(created)} 个 key")
-    return redirect("console:keys", pk=pk)
 
 
 @admin_required
 def key_export(request, pk):
     product = get_object_or_404(Product, pk=pk)
-    response = HttpResponse("\ufeff" + services.export_keys_csv(product), content_type="text/csv; charset=utf-8")
-    response["Content-Disposition"] = f'attachment; filename="keys-{product.code}.csv"'
+    batch = request.GET.get("batch", "")
+    if batch:
+        signing_keys = [get_object_or_404(SigningKey, key_id=batch, product=product)]
+        filename = f"codes-{product.code}-{batch}.csv"
+    else:
+        signing_keys = product.signing_keys.order_by("created_at", "id")
+        filename = f"codes-{product.code}.csv"
+    content = services.export_codes_csv(signing_keys)
+    response = HttpResponse("\ufeff" + content, content_type="text/csv; charset=utf-8")
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
     return response
 
 
 @admin_required
-def key_detail(request, pk):
-    lic = get_object_or_404(LicenseKey.objects.select_related("product", "activation"), pk=pk)
+def activation_detail(request, pk):
+    activation = get_object_or_404(Activation.objects.select_related("product"), pk=pk)
     return render(
         request,
-        "console/key_detail.html",
-        {"lic": lic, "product": lic.product, "logs": lic.transfer_logs.all()},
+        "console/activation_detail.html",
+        {"activation": activation, "product": activation.product, "logs": activation.transfer_logs.all()},
     )
 
 
 @admin_required
 @require_POST
-def key_toggle(request, pk):
-    lic = get_object_or_404(LicenseKey, pk=pk)
-    lic.disabled = not lic.disabled
-    lic.save(update_fields=["disabled"])
-    messages.success(request, f"{lic.key} 已{'禁用' if lic.disabled else '取消禁用'}")
-    next_url = request.POST.get("next", "")
-    if url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
-        return redirect(next_url)
-    return redirect("console:keys", pk=lic.product_id)
+def activation_toggle(request, pk):
+    activation = get_object_or_404(Activation, pk=pk)
+    activation.disabled = not activation.disabled
+    activation.save(update_fields=["disabled"])
+    messages.success(request, f"激活记录已{'禁用' if activation.disabled else '取消禁用'}")
+    return _safe_next(request, redirect("console:keys", pk=activation.product_id))
+
+
+@admin_required
+def signing_key_list(request, pk):
+    product = get_object_or_404(Product, pk=pk)
+    return render(
+        request, "console/signing_key_list.html", {"product": product, "signing_keys": product.signing_keys.all()}
+    )
+
+
+@admin_required
+@require_POST
+def signing_key_disable(request, pk):
+    signing_key = get_object_or_404(SigningKey, pk=pk)
+    if not signing_key.disabled:
+        signing_key.disabled = True
+        signing_key.save(update_fields=["disabled"])
+        messages.success(request, f"批次 {signing_key.key_id} 已禁用")
+    return redirect("console:signing_keys", pk=signing_key.product_id)

@@ -1,13 +1,13 @@
 name: activation
-function: 激活判定、计时与换设备扣减、token 签发与校验、客户端接口
+function: 卡密签名验证、激活判定、计时与换设备扣减、token 签发与校验、客户端接口
 modules: []
 input:
   - name: product
     type: string
     desc: 客户端上报的 product 标识
-  - name: key
+  - name: code
     type: string
-    desc: 用户输入的 key
+    desc: 用户输入的卡密
   - name: device_hash
     type: string
     desc: 客户端生成的设备指纹哈希，64 位小写十六进制
@@ -20,10 +20,10 @@ input:
 output:
   - name: token
     type: string
-    desc: 激活成功时签发，绑定 product、key、device_hash
+    desc: 激活成功时签发，绑定 product、code、device_hash
   - name: expires_at
     type: datetime
-    desc: key 当前到期时间
+    desc: 卡密当前到期时间
   - name: valid
     type: boolean
     desc: 校验结果
@@ -32,12 +32,15 @@ output:
     desc: 统一格式的错误码与说明
 contract:
   - 客户端接口：激活、校验；无需登录
-  - 激活与校验前检查：product 存在且未禁用、key 存在且属于该 product、key 未禁用、key 未到期
-  - 首次激活：写入激活记录，到期时间 = 当前时间 + 有效时长；不写换设备记录
+  - 激活先检查 product 存在且未禁用，再按卡密查激活记录
+  - 已有激活记录：只依据激活记录判定（属于该 product、未禁用、未到期），不再检查私钥批次与签名
+  - 无激活记录（首次激活）：按卡密携带的批次标识找到私钥批次，批次须存在且未禁用，签名须有效，卡密内 product 须与上报一致
+  - 未激活的卡密不过期
+  - 首次激活：写入激活记录，到期时间 = 当前时间 + 卡密内有效时长；不写换设备记录
   - 同设备再次激活：签发新 token，不扣减、不重新计时、不写换设备记录
   - 新设备激活且 product 不允许换设备：拒绝
   - 新设备激活且 product 允许换设备：扣减后到期时间早于当前时间则拒绝且不改动；否则在同一事务内替换激活记录、提前到期时间、追加换设备记录
-  - 校验：token 签名有效，且 token 中的 device_hash 与当前激活记录一致，且激活前检查全部通过
+  - 校验：token 签名有效，product 存在且未禁用，激活记录未禁用、未到期，且 token 中的 device_hash 与当前激活记录一致
   - token 使用服务端密钥签名，客户端无法伪造
 depends:
   - server/keys
@@ -48,14 +51,18 @@ errors:
     desc: product 不存在
   - code: PRODUCT_DISABLED
     desc: product 已禁用
-  - code: KEY_NOT_FOUND
-    desc: key 不存在
-  - code: KEY_PRODUCT_MISMATCH
-    desc: key 不属于客户端上报的 product
-  - code: KEY_DISABLED
-    desc: key 已禁用
-  - code: KEY_EXPIRED
-    desc: key 已到期
+  - code: SIGNING_KEY_NOT_FOUND
+    desc: 卡密携带的私钥批次不存在
+  - code: SIGNING_KEY_DISABLED
+    desc: 私钥批次已被禁用，不能用于新激活
+  - code: CODE_INVALID
+    desc: 卡密签名无效或格式错误
+  - code: CODE_DISABLED
+    desc: 卡密的激活记录已被管理员禁用
+  - code: CODE_EXPIRED
+    desc: 卡密激活后已到期
+  - code: CODE_PRODUCT_MISMATCH
+    desc: 卡密不属于客户端上报的 product
   - code: TRANSFER_NOT_ALLOWED
     desc: product 不允许换设备，新设备激活被拒绝
   - code: TRANSFER_INSUFFICIENT_TIME
@@ -73,3 +80,6 @@ tests:
   - 换设备后旧设备 token 校验返回 DEVICE_MISMATCH
   - 篡改 token 返回 TOKEN_INVALID
   - 接口参数缺失返回 REQUEST_INVALID
+  - 私钥批次禁用后同批次卡密首次激活被拒绝，已激活记录仍可换设备与校验
+  - 伪造或篡改的卡密返回 CODE_INVALID；其它软件的卡密返回 CODE_PRODUCT_MISMATCH
+  - 激活记录被禁用返回 CODE_DISABLED
