@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
@@ -50,6 +50,7 @@ class AccessTests(ConsoleTestCase):
             self.url("signing_keys", self.product.pk),
             self.url("activation_detail", activation.pk),
             self.url("password"),
+            self.url("mcp_setup"),
         ):
             resp = self.client.get(url)
             self.assertEqual(resp.status_code, 302, url)
@@ -217,3 +218,17 @@ class SigningKeyPageTests(ConsoleTestCase):
         self.assertTrue(signing_key.disabled)
         resp = self.client.get(self.url("signing_keys", self.product.pk))
         self.assertNotContains(resp, reverse("console:signing_key_disable", args=[signing_key.pk]))
+
+
+@override_settings(ALLOWED_HOSTS=["auth.example.com", "10.0.0.5"])
+class McpSetupPageTests(ConsoleTestCase):
+    def setUp(self):
+        super().setUp()
+        self.login()
+
+    def test_url_follows_request_host(self):
+        resp = self.client.get(self.url("mcp_setup"), HTTP_HOST="auth.example.com", HTTP_X_FORWARDED_PROTO="https")
+        self.assertContains(resp, "https://auth.example.com/mcp")
+        self.assertContains(resp, "mcpServers")
+        resp = self.client.get(self.url("mcp_setup"), HTTP_HOST="10.0.0.5:8000")
+        self.assertContains(resp, "http://10.0.0.5:8000/mcp")

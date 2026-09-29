@@ -1,0 +1,27 @@
+{% extends "console/base.html" %}
+
+{% block content %}
+<h1>MCP 接入</h1>
+<p class="sub">复制到接入方项目的 <span class="mono">.cursor/mcp.json</span>，写软件的 AI 即可获取本服务的地址、接口与接入规范。</p>
+<div class="card">
+  <p class="muted">当前地址：<span class="mono">{{ mcp_url }}</span>（按访问后台所用的域名或 IP 生成）</p>
+  <textarea id="mcp-config" rows="9" wrap="off" readonly>{{ config }}</textarea>
+  <div class="bar" style="margin: 12px 0 0;">
+    <button type="button" class="primary" id="copy">复制</button>
+    <span class="muted" id="copy-status"></span>
+  </div>
+</div>
+<script>
+  document.getElementById("copy").addEventListener("click", async () => {
+    const box = document.getElementById("mcp-config");
+    const status = document.getElementById("copy-status");
+    try {
+      await navigator.clipboard.writeText(box.value);
+    } catch {
+      box.select();
+      document.execCommand("copy");
+    }
+    status.textContent = "已复制";
+  });
+</script>
+{% endblock %}

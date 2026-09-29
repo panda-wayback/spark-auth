@@ -1,9 +1,12 @@
+import json
+
 from django.contrib import messages
 from django.contrib.auth.decorators import user_passes_test
 from django.core.paginator import Paginator
 from django.db.models import Count, Q
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
@@ -157,3 +160,10 @@ def signing_key_disable(request, pk):
         signing_key.save(update_fields=["disabled"])
         messages.success(request, f"批次 {signing_key.key_id} 已禁用")
     return redirect("console:signing_keys", pk=signing_key.product_id)
+
+
+@admin_required
+def mcp_setup(request):
+    mcp_url = request.build_absolute_uri(reverse("mcp"))
+    config = json.dumps({"mcpServers": {"spark-auth": {"url": mcp_url}}}, indent=2)
+    return render(request, "console/mcp_setup.html", {"mcp_url": mcp_url, "config": config})

@@ -1,7 +1,7 @@
 import json
 from datetime import timedelta
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from keys import services as keys_services
@@ -194,3 +194,36 @@ class ActivationApiTests(TestCase):
     def test_no_login_required(self):
         resp = self.post("/api/activate", {"product": "software-a", "code": self.code, "device_hash": DEVICE_A})
         self.assertEqual(resp.status_code, 200)
+
+
+@override_settings(ALLOWED_HOSTS=["auth.example.com"])
+class McpTests(TestCase):
+    def rpc(self, method, params=None, request_id=1, **headers):
+        message = {"jsonrpc": "2.0", "method": method, "params": params or {}}
+        if request_id is not None:
+            message["id"] = request_id
+        return self.client.post(
+            "/mcp", data=json.dumps(message), content_type="application/json", HTTP_HOST="auth.example.com", **headers
+        )
+
+    def test_initialize_and_list_tools(self):
+        body = self.rpc("initialize", {"protocolVersion": "2025-06-18"}).json()
+        self.assertEqual(body["result"]["protocolVersion"], "2025-06-18")
+        self.assertIn("tools", body["result"]["capabilities"])
+        tools = self.rpc("tools/list").json()["result"]["tools"]
+        self.assertEqual([t["name"] for t in tools], ["get_activation_guide"])
+
+    def test_guide_uses_request_host(self):
+        text = self.rpc("tools/call", {"name": "get_activation_guide"}).json()["result"]["content"][0]["text"]
+        self.assertIn("POST http://auth.example.com/api/activate", text)
+        self.assertIn("POST http://auth.example.com/api/verify", text)
+        self.assertIn("TOKEN_INVALID", text)
+        self.assertIn("设备指纹", text)
+        resp = self.rpc("tools/call", {"name": "get_activation_guide"}, HTTP_X_FORWARDED_PROTO="https")
+        self.assertIn("POST https://auth.example.com/api/activate", resp.json()["result"]["content"][0]["text"])
+
+    def test_errors_and_notifications(self):
+        self.assertEqual(self.rpc("nope").json()["error"]["code"], -32601)
+        self.assertEqual(self.rpc("tools/call", {"name": "nope"}).json()["error"]["code"], -32602)
+        self.assertEqual(self.rpc("notifications/initialized", request_id=None).status_code, 202)
+        self.assertEqual(self.client.get("/mcp", HTTP_HOST="auth.example.com").status_code, 405)

@@ -1,5 +1,5 @@
 name: activation
-function: 卡密签名验证、激活判定、计时与换设备扣减、token 签发与校验、客户端接口
+function: 卡密签名验证、激活判定、计时与换设备扣减、token 签发与校验、客户端接口、只读 MCP 接入说明
 modules: []
 input:
   - name: product
@@ -32,6 +32,12 @@ output:
     desc: 统一格式的错误码与说明
 contract:
   - 客户端接口：激活、校验；无需登录
+  - 激活 POST /api/activate，JSON 请求 {product, code, device_hash, device_info?}，成功返回 {ok:true, token, expires_at}
+  - 校验 POST /api/verify，JSON 请求 {product, device_hash, token}，成功返回 {ok:true, valid:true, expires_at}
+  - 失败返回 {ok:false, error:{code, message}}；REQUEST_INVALID 为 400，PRODUCT_NOT_FOUND 与 SIGNING_KEY_NOT_FOUND 为 404，其余为 403
+  - device_info 可选，不超过 255 个字符；expires_at 为 ISO 8601 时间
+  - MCP POST /mcp：JSON-RPC 2.0（MCP Streamable HTTP，无状态，直接返回 JSON）；支持 initialize、ping、tools/list、tools/call；通知返回 202；GET 返回 405；无需登录
+  - MCP 只有一个只读工具 get_activation_guide：返回按当前请求生成的服务地址、激活与校验完整地址，以及 docs/client/activation、docs/client/fingerprint 与本 spec 全文
   - 激活先检查 product 存在且未禁用，再按卡密查激活记录
   - 已有激活记录：只依据激活记录判定（属于该 product、未禁用、未到期），不再检查私钥批次与签名
   - 无激活记录（首次激活）：按卡密携带的批次标识找到私钥批次，批次须存在且未禁用，签名须有效，卡密内 product 须与上报一致
@@ -83,3 +89,5 @@ tests:
   - 私钥批次禁用后同批次卡密首次激活被拒绝，已激活记录仍可换设备与校验
   - 伪造或篡改的卡密返回 CODE_INVALID；其它软件的卡密返回 CODE_PRODUCT_MISMATCH
   - 激活记录被禁用返回 CODE_DISABLED
+  - MCP initialize、tools/list 正常；get_activation_guide 返回的地址与请求域名一致，代理声明 https 时为 https
+  - MCP 未知方法返回 JSON-RPC 错误；通知返回 202；GET 返回 405

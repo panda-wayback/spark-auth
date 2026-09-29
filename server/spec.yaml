@@ -4,15 +4,16 @@ modules:
   - path: keys
     function: 数据表（product、私钥批次、激活记录、换设备记录）与卡密签发、导出
   - path: activation
-    function: 卡密签名验证、激活判定、计时与换设备扣减、token 签发与校验、客户端接口
+    function: 卡密签名验证、激活判定、计时与换设备扣减、token 签发与校验、客户端接口、只读 MCP 接入说明
   - path: console
-    function: 极简管理后台：登录、软件列表、软件的卡密页、私钥批次列表、激活详情
+    function: 极简管理后台：登录、软件列表、软件的卡密页、私钥批次列表、激活详情、MCP 接入
 input: []
 output: []
 contract:
   - 所有数据存储在单个 SQLite 数据库
   - 客户端接口无需登录；所有管理操作只能在登录后台后进行
   - Django 项目配置与网址路由位于 server 根目录，不单独成模块
+  - 对外展示的服务地址按请求域名生成；信任反向代理的 X-Forwarded-Proto 判断 https
 depends: []
 errors: []
 tests:
