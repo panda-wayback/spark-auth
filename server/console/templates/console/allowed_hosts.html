@@ -1,0 +1,65 @@
+{% extends "console/base.html" %}
+
+{% block content %}
+<h1>访问地址</h1>
+<p class="sub">只有下面列出的域名或 IP 能访问本服务（后台、客户端接口、MCP）。添加、删除立即生效，保存在 <span class="mono">server/allowed_hosts.txt</span>，随代码提交。</p>
+
+<div class="card">
+  <h2>添加地址</h2>
+  {% if candidates %}
+  <div class="bar">
+    <span class="muted">本机局域网 IP：</span>
+    {% for ip in candidates %}
+    <form class="inline" method="post">
+      {% csrf_token %}
+      <input type="hidden" name="host" value="{{ ip }}">
+      <button type="submit">+ {{ ip }}</button>
+    </form>
+    {% endfor %}
+  </div>
+  {% endif %}
+  <div class="bar">
+    <span class="muted">本机公网 IP：</span>
+    {% if public_ip %}
+    <form class="inline" method="post">
+      {% csrf_token %}
+      <input type="hidden" name="host" value="{{ public_ip }}">
+      <button type="submit">+ {{ public_ip }}</button>
+    </form>
+    {% endif %}
+    <a class="btn" href="?detect=1">{% if public_ip %}重新检测{% else %}检测公网 IP{% endif %}</a>
+    <span class="helptext">点击时由服务器向 api.ipify.org 查询；服务器开着代理时查到的是代理出口 IP</span>
+  </div>
+  <form class="bar" method="post" style="margin-bottom: 0;">
+    {% csrf_token %}
+    <input type="text" name="host" placeholder="auth.example.com 或 192.168.1.10" style="width: 300px;" required>
+    <button type="submit" class="primary">添加</button>
+    <span class="helptext">只填域名或 IP，不含 http:// 和端口；以 . 开头表示含全部子域名，如 .example.com</span>
+  </form>
+</div>
+
+<table>
+  <tr><th>地址</th><th>来源</th><th></th></tr>
+  {% for host in builtin_hosts %}
+  <tr>
+    <td class="mono">{{ host }}{% if host == current_domain %} <span class="tag">当前访问</span>{% endif %}</td>
+    <td class="muted">内置（始终允许）</td>
+    <td></td>
+  </tr>
+  {% endfor %}
+  {% for host in file_hosts %}
+  <tr>
+    <td class="mono">{{ host }}{% if host == current_domain %} <span class="tag">当前访问</span>{% endif %}</td>
+    <td class="muted nowrap">server/allowed_hosts.txt</td>
+    <td class="nowrap">
+      <form class="inline" method="post" action="{% url 'console:allowed_host_delete' %}"
+            onsubmit="return confirm('删除后该地址将无法访问本服务，确定删除？');">
+        {% csrf_token %}
+        <input type="hidden" name="host" value="{{ host }}">
+        <button class="link" type="submit">删除</button>
+      </form>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% endblock %}

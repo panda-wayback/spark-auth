@@ -14,11 +14,8 @@ if not SECRET_KEY:
         raise ImproperlyConfigured("必须设置环境变量 SPARK_AUTH_SECRET_KEY（token 签名依赖它）")
     SECRET_KEY = "dev-only-insecure-secret-key"
 
-ALLOWED_HOSTS = [
-    h.strip()
-    for h in os.environ.get("SPARK_AUTH_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
-    if h.strip()
-]
+ALLOWED_HOSTS = ["*"]
+ALLOWED_HOSTS_FILE = BASE_DIR / "allowed_hosts.txt"
 
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
@@ -35,6 +32,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    "console.middleware.AllowedHostMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",

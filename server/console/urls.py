@@ -27,5 +27,7 @@ urlpatterns = [
     path("activations/<int:pk>/", views.activation_detail, name="activation_detail"),
     path("activations/<int:pk>/toggle/", views.activation_toggle, name="activation_toggle"),
     path("signing-keys/<int:pk>/disable/", views.signing_key_disable, name="signing_key_disable"),
+    path("hosts/", views.allowed_hosts, name="allowed_hosts"),
+    path("hosts/delete/", views.allowed_host_delete, name="allowed_host_delete"),
     path("mcp-setup/", views.mcp_setup, name="mcp_setup"),
 ]
