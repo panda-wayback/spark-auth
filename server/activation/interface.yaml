@@ -2,42 +2,32 @@ name: activation
 function: 卡密签名验证、激活判定、计时与换设备扣减、token 签发与校验、客户端接口、只读 MCP 接入说明
 modules: []
 input:
-  - name: product
-    type: string
-    desc: 客户端上报的 product 标识
-  - name: code
-    type: string
-    desc: 用户输入的卡密
-  - name: device_hash
-    type: string
-    desc: 客户端生成的设备指纹哈希，64 位小写十六进制
-  - name: device_info
-    type: string
-    desc: 可读设备信息
-  - name: token
-    type: string
-    desc: 校验时客户端上报的 token
+  - name: POST /api/activate
+    type: JSON {product, code, device_hash, device_info?}
+    desc: product 为软件标识；code 为用户输入的卡密；device_hash 为 64 位小写十六进制设备指纹哈希；device_info 为可选的可读设备信息，不超过 255 个字符
+  - name: POST /api/verify
+    type: JSON {product, device_hash, token}
+    desc: token 为激活时签发的 token
+  - name: POST /mcp
+    type: JSON-RPC 2.0 消息
+    desc: MCP Streamable HTTP（无状态）；方法 initialize、ping、tools/list、tools/call
 output:
-  - name: token
-    type: string
-    desc: 激活成功时签发，绑定 product、code、device_hash
-  - name: expires_at
-    type: datetime
-    desc: 卡密当前到期时间
-  - name: valid
-    type: boolean
-    desc: 校验结果
-  - name: 错误响应
-    type: JSON
-    desc: 统一格式的错误码与说明
+  - name: POST /api/activate
+    type: JSON {ok:true, token, expires_at}
+    desc: token 绑定 product、code、device_hash；expires_at 为 ISO 8601 到期时间
+  - name: POST /api/verify
+    type: JSON {ok:true, valid:true, expires_at}
+    desc: expires_at 为 ISO 8601 到期时间
+  - name: POST /api/activate、POST /api/verify 失败
+    type: JSON {ok:false, error:{code, message}}
+    desc: REQUEST_INVALID 为 400，PRODUCT_NOT_FOUND 与 SIGNING_KEY_NOT_FOUND 为 404，其余为 403
+  - name: POST /mcp
+    type: JSON-RPC 2.0 响应
+    desc: 直接返回 JSON；通知返回 202
 contract:
-  - 客户端接口：激活、校验；无需登录
-  - 激活 POST /api/activate，JSON 请求 {product, code, device_hash, device_info?}，成功返回 {ok:true, token, expires_at}
-  - 校验 POST /api/verify，JSON 请求 {product, device_hash, token}，成功返回 {ok:true, valid:true, expires_at}
-  - 失败返回 {ok:false, error:{code, message}}；REQUEST_INVALID 为 400，PRODUCT_NOT_FOUND 与 SIGNING_KEY_NOT_FOUND 为 404，其余为 403
-  - device_info 可选，不超过 255 个字符；expires_at 为 ISO 8601 时间
-  - MCP POST /mcp：JSON-RPC 2.0（MCP Streamable HTTP，无状态，直接返回 JSON）；支持 initialize、ping、tools/list、tools/call；通知返回 202；GET 返回 405；无需登录
-  - MCP 只有一个只读工具 get_activation_guide：返回按当前请求生成的服务地址、激活与校验完整地址，以及 docs/client/activation、docs/client/fingerprint 与本 spec 全文
+  - 激活、校验与 MCP 接口均无需登录
+  - MCP 的 GET 请求返回 405
+  - MCP 只有一个只读工具 get_activation_guide：返回按当前请求生成的服务地址、激活与校验完整地址，以及 docs/client/activation、docs/client/fingerprint 与本 interface.yaml 全文
   - 激活先检查 product 存在且未禁用，再按卡密查激活记录
   - 已有激活记录：只依据激活记录判定（属于该 product、未禁用、未到期），不再检查私钥批次与签名
   - 无激活记录（首次激活）：按卡密携带的批次标识找到私钥批次，批次须存在且未禁用，签名须有效，卡密内 product 须与上报一致

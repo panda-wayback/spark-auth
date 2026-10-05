@@ -16,7 +16,7 @@ TOOL = {
 SOURCES = (
     ("客户端激活接入规范", "docs/client/activation/README.md"),
     ("客户端设备指纹规范", "docs/client/fingerprint/README.md"),
-    ("激活接口契约", "server/activation/spec.yaml"),
+    ("激活接口契约", "server/activation/interface.yaml"),
 )
 
 

@@ -71,4 +71,4 @@
 6. MCP 接入页。
 7. 访问地址页与访问地址校验。
 
-模块：[server/console/spec.yaml](../../../server/console/spec.yaml)
+模块：[server/console/interface.yaml](../../../server/console/interface.yaml)

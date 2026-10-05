@@ -40,4 +40,4 @@
 4. 校验接口：解析 token，核对卡密与 device_hash。
 5. 管理后台：在激活详情页查看换设备记录。
 
-模块：[server/activation/spec.yaml](../../../server/activation/spec.yaml)、[server/keys/spec.yaml](../../../server/keys/spec.yaml)
+模块：[server/activation/interface.yaml](../../../server/activation/interface.yaml)、[server/keys/interface.yaml](../../../server/keys/interface.yaml)

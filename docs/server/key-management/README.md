@@ -51,4 +51,4 @@
 4. 在管理后台提供：创建 / 修改 / 禁用 product，批量签发 / 导出卡密，查询私钥批次与已激活记录。
 5. 激活接口优先检查 product 与私钥批次状态，再验证卡密签名；已激活后的换设备与校验只依赖数据库激活记录。
 
-模块：[server/keys/spec.yaml](../../../server/keys/spec.yaml)
+模块：[server/keys/interface.yaml](../../../server/keys/interface.yaml)

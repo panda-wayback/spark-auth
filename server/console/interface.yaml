@@ -2,16 +2,40 @@ name: console
 function: 极简管理后台：登录、软件列表、软件的卡密页、私钥批次列表、激活详情、访问地址、MCP 接入；访问地址校验
 modules: []
 input:
-  - name: 管理员操作
-    type: 网页表单 / 上传文件
-    desc: 登录、新建与编辑软件、批量签发卡密、导出、禁用与取消禁用激活记录、禁用私钥批次、添加与删除访问地址
+  - name: /login/、/logout/、/password/
+    type: 网页表单
+    desc: 登录、退出、修改密码
+  - name: /、/products/new/、/products/<id>/edit/
+    type: 网页表单；新建 {code, name, allow_transfer, transfer_penalty_hours}，编辑 {name, allow_transfer, transfer_penalty_hours, disabled}
+    desc: 软件列表、新建软件、编辑软件
+  - name: /products/<id>/、/products/<id>/issue/、/products/<id>/export/
+    type: 卡密页 GET ?q=&page=；签发 POST {count, duration_days}；导出 GET ?batch=<批次标识>（省略则导出全部批次）
+    desc: 当前软件的已激活记录、批量签发、导出 CSV
+  - name: /products/<id>/signing-keys/、/signing-keys/<id>/disable/
+    type: 列表 GET；禁用 POST
+    desc: 私钥批次列表与禁用
+  - name: /activations/<id>/、/activations/<id>/toggle/
+    type: 详情 GET；切换 POST {next?}
+    desc: 激活详情；禁用或取消禁用激活记录
+  - name: /hosts/、/hosts/delete/
+    type: 列表 GET ?detect=1（检测公网 IP）；添加 POST {host}；删除 POST {host}
+    desc: 访问地址管理
+  - name: /mcp-setup/
+    type: GET
+    desc: MCP 接入页
+  - name: 任意请求的 Host
+    type: 域名或 IP
+    desc: 访问地址校验，对全站生效
 output:
-  - name: 管理页面
+  - name: 上述网页路由
     type: HTML
-    desc: 登录页、软件列表、软件的卡密页、私钥批次列表、激活详情页、签发结果页、访问地址页、MCP 接入页
-  - name: 导出文件
-    type: CSV 下载
-    desc: 由 server/keys 生成
+    desc: 登录页、软件列表、卡密页、私钥批次列表、激活详情页、签发结果页、访问地址页、MCP 接入页
+  - name: /products/<id>/export/
+    type: CSV 下载（UTF-8 带 BOM）
+    desc: 内容由 server/keys 生成
+  - name: 未允许的 Host
+    type: 400 纯文本
+    desc: 提示该地址未被允许
 contract:
   - 不使用 Django 自带后台；不提供用户、组管理页面
   - 只有超级管理员可访问；未登录访问任何页面跳转登录页

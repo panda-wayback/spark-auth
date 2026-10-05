@@ -2,42 +2,73 @@ name: keys
 function: 数据表（product、私钥批次、激活记录、换设备记录）与卡密签发、导出
 modules: []
 input:
-  - name: product 参数
-    type: 标识、名称、是否允许换设备、换设备扣减时长
-    desc: 创建或修改 product
-  - name: 卡密签发参数
-    type: product、有效时长（天）、数量
+  - name: keys.services.issue_codes
+    type: (product, duration_days, count=1)；product 为 Product，duration_days 为 1 至 36500 的整数（天），count 为 1 至 1000 的整数
     desc: 批量签发卡密，同时生成新的私钥批次
-  - name: 导出批次
-    type: 一个或多个私钥批次
+  - name: keys.services.batch_codes
+    type: (signing_key)；signing_key 为 SigningKey
+    desc: 重新取出某批次签发的全部卡密
+  - name: keys.services.export_codes_csv
+    type: (signing_keys)；SigningKey 的可迭代集合
     desc: 导出所选批次签发的全部卡密
+  - name: keys.codes.normalize
+    type: (code)；用户输入的卡密字符串
+    desc: 去掉空白与连字符并转大写，得到标准卡密
+  - name: keys.codes.read_key_id
+    type: (code)；卡密字符串
+    desc: 读出卡密携带的私钥批次标识，不验证签名
+  - name: keys.codes.verify_code
+    type: (private_pem, code)；private_pem 为 SigningKey.private_pem
+    desc: 用批次私钥验证卡密签名并读出内容
 output:
-  - name: 数据记录
-    type: product / signing_key / activation / transfer_log
-    desc: 供 activation 与 console 读写
-  - name: codes
-    type: 卡密列表
-    desc: 批量签发结果
-  - name: export_csv
-    type: CSV 文本
-    desc: 列：卡密、有效时长、签发时间
+  - name: keys.services.issue_codes
+    type: (SigningKey, list[str])
+    desc: 新建的私钥批次与本批卡密
+  - name: keys.services.batch_codes
+    type: list[str]
+    desc: 与签发时一致的卡密列表
+  - name: keys.services.export_codes_csv
+    type: str（CSV 文本）
+    desc: 表头 卡密、有效时长（天）、签发时间；签发时间为本地时间 YYYY-MM-DD HH:MM:SS
+  - name: keys.codes.normalize
+    type: str
+    desc: 标准卡密
+  - name: keys.codes.read_key_id
+    type: str（16 位十六进制）
+    desc: 私钥批次标识
+  - name: keys.codes.verify_code
+    type: CodeInfo(key_id, product_code, issued_at, duration_days, serial)
+    desc: issued_at 为 Unix 秒
+  - name: keys.models.Product
+    type: 数据表；code（唯一标识）、name、allow_transfer、transfer_penalty_hours、disabled、created_at；transfer_policy_label（只读文字）；反向关联 signing_keys、activations
+    desc: 软件，调用方直接读写
+  - name: keys.models.SigningKey
+    type: 数据表；key_id（唯一）、product、private_pem、duration_days、count、disabled、created_at
+    desc: 私钥批次，调用方直接读写
+  - name: keys.models.Activation
+    type: 数据表；code（唯一）、product、device_hash、device_info、duration_days、expires_at、disabled、activated_at、created_at；is_expired(now=None)、status（有效 / 已到期 / 已禁用）；反向关联 transfer_logs
+    desc: 激活记录，调用方直接读写
+  - name: keys.models.TransferLog
+    type: 数据表；activation、old_device_hash、old_device_info、new_device_hash、new_device_info、penalty_hours、expires_before、expires_after、created_at
+    desc: 换设备记录，只能新增
+  - name: keys.errors.ServiceError
+    type: 异常；属性 code、message
+    desc: 各 Module 统一使用的业务错误，code 取自各 Module 的 errors
 contract:
   - product 标识唯一；私钥批次标识唯一
   - 每个卡密最多一条当前激活记录
-  - 换设备记录只追加，不提供修改与删除
+  - 换设备记录只追加；修改或删除时抛出 PermissionError
   - 签发的卡密难以猜测、不可伪造；同一批次内卡密互不相同
   - 卡密自包含 product 标识、私钥批次标识、签发时间、有效时长
-  - 同一批次的卡密可随时重新导出，内容与签发时一致
+  - 同一批次的卡密可随时重新取出与导出，内容与签发时一致
   - 未激活的卡密不持久化；服务端只保存 product、私钥批次、已激活记录、换设备记录
-  - 批量签发数量范围 1 至 1000，整批成功或整批不生成
+  - 批量签发整批成功或整批不生成
   - 修改 product 换设备策略后，对该 product 下所有卡密的后续换设备立即生效
   - 私钥批次可禁用；禁用后该批次卡密不能用于新激活，已激活记录不受影响
 depends: []
 errors:
   - code: REQUEST_INVALID
     desc: 有效时长不是 1 至 36500 之间的整数（天）
-  - code: PRODUCT_EXISTS
-    desc: product 标识重复
   - code: BATCH_COUNT_INVALID
     desc: 批量签发数量小于 1 或超过 1000
   - code: CODE_INVALID

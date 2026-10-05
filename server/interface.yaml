@@ -12,7 +12,6 @@ output: []
 contract:
   - 业务数据存储在单个 SQLite 数据库；访问地址列表存于随代码提交的 server/allowed_hosts.txt
   - 客户端接口无需登录；所有管理操作只能在登录后台后进行
-  - Django 项目配置与网址路由位于 server 根目录，不单独成模块
   - 对外展示的服务地址按请求域名生成；信任反向代理的 X-Forwarded-Proto 判断 https
   - 允许访问的域名或 IP 由 console 校验，对全站生效（含客户端接口与 MCP）
 depends: []

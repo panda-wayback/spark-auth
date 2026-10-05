@@ -11,7 +11,7 @@
 - 卡密为自包含字符串，内含 product 标识、签发时间、有效时长与服务端签名；客户端不需要解析卡密内容。
 - 激活成功后，软件在本地保存返回的 token。
 - 软件启动时（或按需）调用校验接口，上报 product、device_hash 与 token，校验失败则视为未激活。
-- 接口请求、响应与错误码以服务端 [server/activation/spec.yaml](../../../server/activation/spec.yaml) 为准。
+- 接口请求、响应与错误码以服务端 [server/activation/interface.yaml](../../../server/activation/interface.yaml) 为准。
 - 服务端提供只读 MCP 地址：接入方开发时使用的 AI 可从中获取本规范、设备指纹规范、接口契约与当前服务地址；无需登录，不提供任何管理能力。MCP 配置在管理后台复制。
 
 ## 关键约束
