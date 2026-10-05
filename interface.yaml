@@ -2,7 +2,7 @@ name: spark-auth
 function: 按软件管理自包含卡密，并将已激活卡密绑定到单台设备的软件激活服务端
 modules:
   - path: server
-    function: Django 服务端：product 与私钥批次、卡密激活与校验、管理后台
+    function: Django 服务端：product 与卡密批次、卡密激活与校验、管理后台
 input: []
 output: []
 contract:
@@ -19,4 +19,4 @@ tests:
   - Integration Test：允许换设备且扣 1 天的 product，换设备后到期时间提前 1 天、新增一条换设备记录、旧设备校验失败
   - Integration Test：剩余时长不足扣减时换设备被拒绝，原设备仍可用
   - Integration Test：卡密与上报 product 不一致被拒绝；已过期卡密被拒绝
-  - Integration Test：禁用私钥批次后，同批次卡密首次激活被拒绝，但已激活设备仍可校验
+  - Integration Test：禁用卡密批次后，同批次卡密首次激活被拒绝，但已激活设备仍可校验

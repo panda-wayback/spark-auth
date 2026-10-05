@@ -8,7 +8,7 @@
 
 - 接入方软件内置所属 product 标识，激活与校验时一并上报。
 - 用户在软件中输入卡密后，软件按[设备指纹规范](../fingerprint/README.md)生成 device_hash，调用激活接口。
-- 卡密为自包含字符串，内含 product 标识、签发时间、有效时长与服务端签名；客户端不需要解析卡密内容。
+- 卡密是由服务端签发的约 28 个字符的字符串（分组显示，如 `XXXXX-XXXXX-…`）；用户输入时可带或不带连字符、空格，大小写均可，客户端原样上传，不需要解析卡密内容。
 - 激活成功后，软件在本地保存返回的 token。
 - 软件启动时（或按需）调用校验接口，上报 product、device_hash 与 token，校验失败则视为未激活。
 - 接口请求、响应与错误码以服务端 [server/activation/interface.yaml](../../../server/activation/interface.yaml) 为准。

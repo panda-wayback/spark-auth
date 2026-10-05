@@ -3,23 +3,32 @@ import json
 from django.contrib import messages
 from django.contrib.auth.decorators import user_passes_test
 from django.core.paginator import Paginator
-from django.db.models import Count, Q
-from django.http import HttpResponse
-from django.shortcuts import get_object_or_404, redirect, render
+from django.http import Http404, HttpResponse
+from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
 
-from keys import services
+from activation import services as activation_services
+from keys import services as keys_services
 from keys.errors import ServiceError
-from keys.models import Activation, Product, SigningKey
 
 from . import hosts
 from .forms import IssueCodesForm, ProductCreateForm, ProductEditForm
 
 PAGE_SIZE = 50
+NOT_FOUND = {"PRODUCT_NOT_FOUND", "BATCH_NOT_FOUND", "ACTIVATION_NOT_FOUND"}
 
 admin_required = user_passes_test(lambda u: u.is_active and u.is_superuser)
+
+
+def _call(func, *args, **kwargs):
+    try:
+        return func(*args, **kwargs)
+    except ServiceError as exc:
+        if exc.code in NOT_FOUND:
+            raise Http404(exc.message)
+        raise
 
 
 def _first_error(form):
@@ -37,42 +46,55 @@ def _safe_next(request, fallback):
 
 @admin_required
 def product_list(request):
-    products = Product.objects.annotate(active_count=Count("activations"))
-    return render(request, "console/product_list.html", {"products": products})
+    counts = activation_services.count_by_product()
+    rows = [(p, counts.get(p.code, 0)) for p in keys_services.list_products()]
+    return render(request, "console/product_list.html", {"rows": rows})
 
 
 @admin_required
 def product_create(request):
     form = ProductCreateForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
-        product = form.save()
-        return redirect("console:keys", pk=product.pk)
+        try:
+            product = keys_services.create_product(**form.cleaned_data)
+        except ServiceError as exc:
+            form.add_error(None, exc.message)
+        else:
+            return redirect("console:keys", pk=product.id)
     return render(request, "console/product_form.html", {"form": form, "title": "新建软件"})
 
 
 @admin_required
 def product_edit(request, pk):
-    product = get_object_or_404(Product, pk=pk)
-    form = ProductEditForm(request.POST or None, instance=product)
+    product = _call(keys_services.get_product, pk)
+    initial = {
+        "name": product.name,
+        "allow_transfer": product.allow_transfer,
+        "transfer_penalty_hours": product.transfer_penalty_hours,
+        "disabled": product.disabled,
+    }
+    form = ProductEditForm(request.POST or None, initial=initial)
     if request.method == "POST" and form.is_valid():
-        form.save()
-        messages.success(request, "已保存")
-        return redirect("console:products")
+        try:
+            keys_services.update_product(pk, **form.cleaned_data)
+        except ServiceError as exc:
+            form.add_error(None, exc.message)
+        else:
+            messages.success(request, "已保存")
+            return redirect("console:products")
     return render(
-        request, "console/product_form.html", {"form": form, "title": f"编辑 {product}", "product": product}
+        request,
+        "console/product_form.html",
+        {"form": form, "title": f"编辑 {product.name}（{product.code}）", "product": product},
     )
 
 
 @admin_required
 def key_list(request, pk):
-    product = get_object_or_404(Product, pk=pk)
+    product = _call(keys_services.get_product, pk)
     query = request.GET.get("q", "").strip()
-    activations = product.activations.annotate(transfer_count=Count("transfer_logs"))
-    if query:
-        activations = activations.filter(
-            Q(code__icontains=query) | Q(device_info__icontains=query) | Q(device_hash__icontains=query)
-        )
-    page = Paginator(activations.order_by("-created_at", "-id"), PAGE_SIZE).get_page(request.GET.get("page"))
+    activations = activation_services.search(product.code, query)
+    page = Paginator(activations, PAGE_SIZE).get_page(request.GET.get("page"))
     return render(
         request,
         "console/key_list.html",
@@ -81,7 +103,7 @@ def key_list(request, pk):
             "page": page,
             "query": query,
             "issue_form": IssueCodesForm(),
-            "signing_keys": product.signing_keys.all(),
+            "batches": keys_services.list_batches(pk),
         },
     )
 
@@ -89,36 +111,29 @@ def key_list(request, pk):
 @admin_required
 @require_POST
 def key_issue(request, pk):
-    product = get_object_or_404(Product, pk=pk)
+    product = _call(keys_services.get_product, pk)
     form = IssueCodesForm(request.POST)
     if not form.is_valid():
         messages.error(request, _first_error(form))
         return redirect("console:keys", pk=pk)
     try:
-        signing_key, codes = services.issue_codes(
-            product, form.cleaned_data["duration_days"], form.cleaned_data["count"]
-        )
+        batch, codes = keys_services.issue_codes(pk, form.cleaned_data["duration_days"], form.cleaned_data["count"])
     except ServiceError as exc:
         messages.error(request, exc.message)
         return redirect("console:keys", pk=pk)
     return render(
         request,
         "console/result.html",
-        {"product": product, "title": f"已签发 {len(codes)} 个卡密", "codes": codes, "signing_key": signing_key},
+        {"product": product, "title": f"已签发 {len(codes)} 个卡密", "codes": codes, "batch": batch},
     )
 
 
 @admin_required
 def key_export(request, pk):
-    product = get_object_or_404(Product, pk=pk)
-    batch = request.GET.get("batch", "")
-    if batch:
-        signing_keys = [get_object_or_404(SigningKey, key_id=batch, product=product)]
-        filename = f"codes-{product.code}-{batch}.csv"
-    else:
-        signing_keys = product.signing_keys.order_by("created_at", "id")
-        filename = f"codes-{product.code}.csv"
-    content = services.export_codes_csv(signing_keys)
+    product = _call(keys_services.get_product, pk)
+    batch_id = request.GET.get("batch", "") or None
+    content = _call(keys_services.export_codes_csv, pk, batch_id)
+    filename = f"codes-{product.code}-{batch_id}.csv" if batch_id else f"codes-{product.code}.csv"
     response = HttpResponse("\ufeff" + content, content_type="text/csv; charset=utf-8")
     response["Content-Disposition"] = f'attachment; filename="{filename}"'
     return response
@@ -126,41 +141,38 @@ def key_export(request, pk):
 
 @admin_required
 def activation_detail(request, pk):
-    activation = get_object_or_404(Activation.objects.select_related("product"), pk=pk)
+    activation, logs = _call(activation_services.get_detail, pk)
+    product = keys_services.get_product_by_code(activation.product_code)
     return render(
         request,
         "console/activation_detail.html",
-        {"activation": activation, "product": activation.product, "logs": activation.transfer_logs.all()},
+        {"activation": activation, "product": product, "logs": logs},
     )
 
 
 @admin_required
 @require_POST
 def activation_toggle(request, pk):
-    activation = get_object_or_404(Activation, pk=pk)
-    activation.disabled = not activation.disabled
-    activation.save(update_fields=["disabled"])
+    activation = _call(activation_services.toggle_disabled, pk)
     messages.success(request, f"激活记录已{'禁用' if activation.disabled else '取消禁用'}")
-    return _safe_next(request, redirect("console:keys", pk=activation.product_id))
+    product = keys_services.get_product_by_code(activation.product_code)
+    return _safe_next(request, redirect("console:keys", pk=product.id))
 
 
 @admin_required
-def signing_key_list(request, pk):
-    product = get_object_or_404(Product, pk=pk)
+def batch_list(request, pk):
+    product = _call(keys_services.get_product, pk)
     return render(
-        request, "console/signing_key_list.html", {"product": product, "signing_keys": product.signing_keys.all()}
+        request, "console/batch_list.html", {"product": product, "batches": keys_services.list_batches(pk)}
     )
 
 
 @admin_required
 @require_POST
-def signing_key_disable(request, pk):
-    signing_key = get_object_or_404(SigningKey, pk=pk)
-    if not signing_key.disabled:
-        signing_key.disabled = True
-        signing_key.save(update_fields=["disabled"])
-        messages.success(request, f"批次 {signing_key.key_id} 已禁用")
-    return redirect("console:signing_keys", pk=signing_key.product_id)
+def batch_disable(request, batch_id):
+    batch = _call(keys_services.disable_batch, batch_id)
+    messages.success(request, f"批次 {batch.batch_id} 已禁用")
+    return redirect("console:batches", pk=batch.product_id)
 
 
 @admin_required

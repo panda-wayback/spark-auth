@@ -1,25 +1,34 @@
 import json
 from datetime import timedelta
+from unittest.mock import patch
 
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from keys import services as keys_services
 from keys.errors import ServiceError
-from keys.models import Activation, Product, SigningKey, TransferLog
 
 from . import services
+from .models import Activation, TransferLog
 
 DEVICE_A = "a" * 64
 DEVICE_B = "b" * 64
 
 
-class ActivationServiceTests(TestCase):
+def set_policy(product, allow_transfer=None, penalty=None, disabled=None):
+    keys_services.update_product(
+        product.id,
+        product.name,
+        product.allow_transfer if allow_transfer is None else allow_transfer,
+        product.transfer_penalty_hours if penalty is None else penalty,
+        product.disabled if disabled is None else disabled,
+    )
+
+
+class ActivationTestCase(TestCase):
     def setUp(self):
-        self.product = Product.objects.create(
-            code="software-a", name="A", allow_transfer=True, transfer_penalty_hours=24
-        )
-        self.signing_key, (self.code,) = keys_services.issue_codes(self.product, 30, 1)
+        self.product = keys_services.create_product("software-a", "A", True, 24)
+        self.batch, (self.code,) = keys_services.issue_codes(self.product.id, 30, 1)
 
     def assertCode(self, code, func, *args):
         with self.assertRaises(ServiceError) as ctx:
@@ -27,8 +36,10 @@ class ActivationServiceTests(TestCase):
         self.assertEqual(ctx.exception.code, code)
 
     def activation(self):
-        return Activation.objects.get(code=self.code)
+        return Activation.objects.get()
 
+
+class ActivationServiceTests(ActivationTestCase):
     def test_first_activation_sets_expiry_without_log(self):
         before = timezone.now()
         _, expires_at = services.activate("software-a", self.code, DEVICE_A, "pc-a")
@@ -38,9 +49,10 @@ class ActivationServiceTests(TestCase):
         self.assertEqual(TransferLog.objects.count(), 0)
 
     def test_unactivated_code_does_not_expire(self):
-        SigningKey.objects.filter(pk=self.signing_key.pk).update(created_at=timezone.now() - timedelta(days=400))
-        _, expires_at = services.activate("software-a", self.code, DEVICE_A)
-        self.assertGreater(expires_at, timezone.now() + timedelta(days=29))
+        later = timezone.now() + timedelta(days=400)
+        with patch("django.utils.timezone.now", return_value=later):
+            _, expires_at = services.activate("software-a", self.code, DEVICE_A)
+        self.assertEqual(expires_at, later + timedelta(days=30))
 
     def test_same_device_keeps_expiry(self):
         _, first = services.activate("software-a", self.code, DEVICE_A)
@@ -49,7 +61,7 @@ class ActivationServiceTests(TestCase):
         self.assertEqual(TransferLog.objects.count(), 0)
 
     def test_transfer_not_allowed(self):
-        Product.objects.filter(pk=self.product.pk).update(allow_transfer=False)
+        set_policy(self.product, allow_transfer=False)
         services.activate("software-a", self.code, DEVICE_A)
         self.assertCode("TRANSFER_NOT_ALLOWED", services.activate, "software-a", self.code, DEVICE_B)
         self.assertEqual(self.activation().device_hash, DEVICE_A)
@@ -66,7 +78,7 @@ class ActivationServiceTests(TestCase):
         self.assertEqual((log.penalty_hours, log.expires_before, log.expires_after), (24, before, after))
 
     def test_transfer_with_zero_penalty(self):
-        Product.objects.filter(pk=self.product.pk).update(transfer_penalty_hours=0)
+        set_policy(self.product, penalty=0)
         _, before = services.activate("software-a", self.code, DEVICE_A)
         _, after = services.activate("software-a", self.code, DEVICE_B)
         self.assertEqual(before, after)
@@ -75,11 +87,20 @@ class ActivationServiceTests(TestCase):
     def test_transfer_insufficient_time_changes_nothing(self):
         services.activate("software-a", self.code, DEVICE_A)
         almost = timezone.now() + timedelta(hours=10)
-        Activation.objects.filter(code=self.code).update(expires_at=almost)
+        Activation.objects.update(expires_at=almost)
         self.assertCode("TRANSFER_INSUFFICIENT_TIME", services.activate, "software-a", self.code, DEVICE_B)
         activation = self.activation()
         self.assertEqual((activation.expires_at, activation.device_hash), (almost, DEVICE_A))
         self.assertEqual(TransferLog.objects.count(), 0)
+
+    def test_transfer_log_append_only(self):
+        services.activate("software-a", self.code, DEVICE_A)
+        services.activate("software-a", self.code, DEVICE_B)
+        log = TransferLog.objects.get()
+        with self.assertRaises(PermissionError):
+            log.save()
+        with self.assertRaises(PermissionError):
+            log.delete()
 
     def test_old_device_fails_after_transfer(self):
         token_a, _ = services.activate("software-a", self.code, DEVICE_A)
@@ -100,9 +121,10 @@ class ActivationServiceTests(TestCase):
         self.assertCode("TOKEN_INVALID", services.verify, "software-a", DEVICE_A, "garbage")
 
     def test_product_and_code_checks(self):
-        other = Product.objects.create(code="software-b", name="B")
-        _, (other_code,) = keys_services.issue_codes(other, 30, 1)
-        tampered = self.code[:20] + ("A" if self.code[20] != "A" else "B") + self.code[21:]
+        other = keys_services.create_product("software-b", "B")
+        _, (other_code,) = keys_services.issue_codes(other.id, 30, 1)
+        plain = self.code.replace("-", "")
+        tampered = plain[:20] + ("A" if plain[20] != "A" else "B") + plain[21:]
         self.assertCode("PRODUCT_NOT_FOUND", services.activate, "nope", self.code, DEVICE_A)
         self.assertCode("CODE_INVALID", services.activate, "software-a", "NOPE", DEVICE_A)
         self.assertCode("CODE_INVALID", services.activate, "software-a", tampered, DEVICE_A)
@@ -110,53 +132,78 @@ class ActivationServiceTests(TestCase):
         self.assertCode("CODE_PRODUCT_MISMATCH", services.activate, "software-b", self.code, DEVICE_A)
         self.assertEqual(Activation.objects.count(), 0)
 
-    def test_unknown_batch(self):
-        SigningKey.objects.filter(pk=self.signing_key.pk).update(key_id="0" * 16)
-        self.assertCode("SIGNING_KEY_NOT_FOUND", services.activate, "software-a", self.code, DEVICE_A)
-
     def test_disabled_and_expired(self):
         token, _ = services.activate("software-a", self.code, DEVICE_A)
 
-        Activation.objects.filter(code=self.code).update(disabled=True)
+        Activation.objects.update(disabled=True)
         self.assertCode("CODE_DISABLED", services.verify, "software-a", DEVICE_A, token)
         self.assertCode("CODE_DISABLED", services.activate, "software-a", self.code, DEVICE_A)
-        Activation.objects.filter(code=self.code).update(disabled=False)
+        Activation.objects.update(disabled=False)
 
-        Product.objects.filter(pk=self.product.pk).update(disabled=True)
+        set_policy(self.product, disabled=True)
         self.assertCode("PRODUCT_DISABLED", services.verify, "software-a", DEVICE_A, token)
-        Product.objects.filter(pk=self.product.pk).update(disabled=False)
+        set_policy(self.product, disabled=False)
 
-        Activation.objects.filter(code=self.code).update(expires_at=timezone.now() - timedelta(seconds=1))
+        Activation.objects.update(expires_at=timezone.now() - timedelta(seconds=1))
         self.assertCode("CODE_EXPIRED", services.verify, "software-a", DEVICE_A, token)
         self.assertCode("CODE_EXPIRED", services.activate, "software-a", self.code, DEVICE_A)
 
-    def test_signing_key_disabled_blocks_new_activation(self):
-        SigningKey.objects.filter(pk=self.signing_key.pk).update(disabled=True)
-        self.assertCode("SIGNING_KEY_DISABLED", services.activate, "software-a", self.code, DEVICE_A)
+    def test_batch_disabled_blocks_new_activation(self):
+        keys_services.disable_batch(self.batch.batch_id)
+        self.assertCode("BATCH_DISABLED", services.activate, "software-a", self.code, DEVICE_A)
         self.assertEqual(Activation.objects.count(), 0)
 
-    def test_signing_key_disabled_keeps_activated(self):
+    def test_batch_disabled_keeps_activated(self):
         services.activate("software-a", self.code, DEVICE_A)
-        SigningKey.objects.filter(pk=self.signing_key.pk).update(disabled=True)
+        keys_services.disable_batch(self.batch.batch_id)
         token, expires_at = services.activate("software-a", self.code, DEVICE_B)
         self.assertEqual(services.verify("software-a", DEVICE_B, token), expires_at)
 
     def test_formatted_input_matches_same_activation(self):
         services.activate("software-a", self.code, DEVICE_A)
-        messy = " " + "-".join(self.code[i : i + 5] for i in range(0, len(self.code), 5)).lower()
+        messy = " " + self.code.replace("-", "").lower()
         services.activate("software-a", messy, DEVICE_A)
         self.assertEqual(Activation.objects.count(), 1)
 
     def test_policy_change_applies_immediately(self):
         services.activate("software-a", self.code, DEVICE_A)
-        Product.objects.filter(pk=self.product.pk).update(allow_transfer=False)
+        set_policy(self.product, allow_transfer=False)
         self.assertCode("TRANSFER_NOT_ALLOWED", services.activate, "software-a", self.code, DEVICE_B)
+
+
+class AdminQueryTests(ActivationTestCase):
+    def test_count_and_search(self):
+        other = keys_services.create_product("software-b", "B")
+        _, codes = keys_services.issue_codes(self.product.id, 30, 2)
+        _, (other_code,) = keys_services.issue_codes(other.id, 30, 1)
+        services.activate("software-a", codes[0], DEVICE_A, "pc-one")
+        services.activate("software-a", codes[1], DEVICE_B, "pc-two")
+        services.activate("software-b", other_code, DEVICE_A)
+
+        self.assertEqual(services.count_by_product(), {"software-a": 2, "software-b": 1})
+        self.assertEqual(len(services.search("software-a")), 2)
+        found = services.search("software-a", codes[0].lower())
+        self.assertEqual([a.code for a in found], [codes[0].replace("-", "")])
+        self.assertEqual([a.device_info for a in services.search("software-a", "pc-two")], ["pc-two"])
+
+    def test_detail_and_toggle(self):
+        services.activate("software-a", self.code, DEVICE_A, "pc-a")
+        services.activate("software-a", self.code, DEVICE_B, "pc-b")
+        (info,) = services.search("software-a")
+        detail, logs = services.get_detail(info.id)
+        self.assertEqual((detail.device_hash, detail.transfer_count, detail.status), (DEVICE_B, 1, "有效"))
+        self.assertEqual((logs[0].old_device_info, logs[0].new_device_info), ("pc-a", "pc-b"))
+
+        self.assertEqual(services.toggle_disabled(info.id).status, "已禁用")
+        self.assertEqual(services.toggle_disabled(info.id).status, "有效")
+        self.assertCode("ACTIVATION_NOT_FOUND", services.get_detail, 999)
+        self.assertCode("ACTIVATION_NOT_FOUND", services.toggle_disabled, 999)
 
 
 class ActivationApiTests(TestCase):
     def setUp(self):
-        product = Product.objects.create(code="software-a", name="A")
-        _, (self.code,) = keys_services.issue_codes(product, 30, 1)
+        product = keys_services.create_product("software-a", "A")
+        _, (self.code,) = keys_services.issue_codes(product.id, 30, 1)
 
     def post(self, url, payload):
         return self.client.post(url, data=json.dumps(payload), content_type="application/json")

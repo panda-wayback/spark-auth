@@ -2,8 +2,8 @@
 
 个人用的软件激活服务端：按软件签发自包含卡密，用户在软件里输入卡密后绑定到一台设备。
 
-- 卡密自带软件标识、有效时长和签名，服务端只保存已激活的记录。
-- 每次签发生成一个新的私钥批次；禁用批次只阻止新激活，已激活设备不受影响。
+- 卡密约 28 个字符、便于手输，难以猜测、无法伪造；服务端只保存已激活的记录。
+- 每次签发生成一个新的卡密批次；禁用批次只阻止新激活，已激活设备不受影响。
 - 一个卡密同一时刻只绑定一台设备，可按软件设置是否允许换设备、换一次扣多少时长。
 - 极简网页后台管理一切；客户端不在本仓库，接入方调两个 HTTP 接口即可。
 
@@ -38,7 +38,7 @@ make run         # 启动开发服务（8000 端口）
 ## 部署
 
 ```bash
-export SPARK_AUTH_SECRET_KEY='一串足够长的随机字符'   # 必填，token 签名依赖它，更换后已签发 token 全部失效
+export SPARK_AUTH_SECRET_KEY='一串足够长的随机字符'   # 必填，卡密与 token 签名依赖它，更换后未激活卡密与已签发 token 全部失效
 export SPARK_AUTH_DB_PATH=/path/to/db.sqlite3        # 可选，默认 server/db.sqlite3
 cd server && ../.venv/bin/python manage.py migrate
 ../.venv/bin/gunicorn config.wsgi -b 127.0.0.1:8000 --workers 2
@@ -60,8 +60,8 @@ cd server && ../.venv/bin/python manage.py migrate
 
 ```text
 docs/              能力文档（服务端 / 客户端规范）
-server/keys/       数据表、卡密签发与导出
-server/activation/ 激活、校验接口与 MCP
+server/keys/       软件与卡密批次、卡密签发、验证与导出
+server/activation/ 激活记录与换设备记录、激活与校验接口、MCP
 server/console/    管理后台与访问地址校验
 tools/             激活测试页
 ```

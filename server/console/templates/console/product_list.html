@@ -5,19 +5,19 @@
   <h1>软件</h1>
   <a class="btn primary" href="{% url 'console:product_create' %}">新建软件</a>
 </div>
-{% if products %}
+{% if rows %}
 <table>
   <tr><th>名称</th><th>标识</th><th>换设备策略</th><th>已激活</th><th>状态</th><th></th></tr>
-  {% for product in products %}
+  {% for product, active_count in rows %}
   <tr>
-    <td><a href="{% url 'console:keys' product.pk %}">{{ product.name }}</a></td>
+    <td><a href="{% url 'console:keys' product.id %}">{{ product.name }}</a></td>
     <td class="mono">{{ product.code }}</td>
     <td>{{ product.transfer_policy_label }}</td>
-    <td>{{ product.active_count }}</td>
+    <td>{{ active_count }}</td>
     <td>{% if product.disabled %}<span class="tag 已禁用">已禁用</span>{% else %}<span class="tag 有效">正常</span>{% endif %}</td>
     <td class="nowrap">
-      <a class="btn primary" href="{% url 'console:keys' product.pk %}">管理卡密 →</a>
-      <a href="{% url 'console:product_edit' product.pk %}" style="margin-left: 12px;">编辑</a>
+      <a class="btn primary" href="{% url 'console:keys' product.id %}">管理卡密 →</a>
+      <a href="{% url 'console:product_edit' product.id %}" style="margin-left: 12px;">编辑</a>
     </td>
   </tr>
   {% endfor %}

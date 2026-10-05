@@ -5,24 +5,24 @@
 <p class="sub">
   <a href="{% url 'console:products' %}">← 软件列表</a> ·
   {{ product.transfer_policy_label }}{% if product.disabled %} · <span class="tag 已禁用">已禁用</span>{% endif %} ·
-  <a href="{% url 'console:product_edit' product.pk %}">编辑软件</a> ·
-  <a href="{% url 'console:signing_keys' product.pk %}">私钥批次</a>
+  <a href="{% url 'console:product_edit' product.id %}">编辑软件</a> ·
+  <a href="{% url 'console:batches' product.id %}">卡密批次</a>
 </p>
 
 <div class="card actions">
   <strong>签发卡密</strong>
-  <form method="post" action="{% url 'console:key_issue' product.pk %}">
+  <form method="post" action="{% url 'console:key_issue' product.id %}">
     {% csrf_token %}
     数量 {{ issue_form.count }} 有效天数 {{ issue_form.duration_days }}
     <button class="primary" type="submit">签发</button>
     <span class="helptext">有效天数{{ issue_form.duration_days.help_text }}</span>
   </form>
   <strong>导出 CSV</strong>
-  <form method="get" action="{% url 'console:key_export' product.pk %}">
+  <form method="get" action="{% url 'console:key_export' product.id %}">
     <select name="batch">
       <option value="">全部批次</option>
-      {% for sk in signing_keys %}
-      <option value="{{ sk.key_id }}">{{ sk.created_at|date:"Y-m-d H:i" }} · {{ sk.count }} 个 · {{ sk.duration_days }} 天</option>
+      {% for batch in batches %}
+      <option value="{{ batch.batch_id }}">{{ batch.created_at|date:"Y-m-d H:i" }} · {{ batch.count }} 个 · {{ batch.duration_days }} 天</option>
       {% endfor %}
     </select>
     <button type="submit">下载卡密</button>
@@ -33,7 +33,7 @@
 <form method="get" class="bar">
   <input type="search" name="q" value="{{ query }}" placeholder="搜索卡密或设备">
   <button type="submit">搜索</button>
-  {% if query %}<a href="{% url 'console:keys' product.pk %}">清除</a>{% endif %}
+  {% if query %}<a href="{% url 'console:keys' product.id %}">清除</a>{% endif %}
   <span class="muted">共 {{ page.paginator.count }} 个</span>
 </form>
 
@@ -43,14 +43,14 @@
   <tr><th>卡密</th><th>状态</th><th>有效时长</th><th>到期时间</th><th>当前设备</th><th>换设备次数</th><th></th></tr>
   {% for act in page.object_list %}
   <tr>
-    <td class="mono nowrap"><a href="{% url 'console:activation_detail' act.pk %}" title="{{ act.code }}">{{ act.code|slice:":6" }}…{{ act.code|slice:"-8:" }}</a></td>
+    <td class="mono nowrap"><a href="{% url 'console:activation_detail' act.id %}" title="{{ act.code }}">{{ act.code|slice:":6" }}…{{ act.code|slice:"-8:" }}</a></td>
     <td class="nowrap"><span class="tag {{ act.status }}">{{ act.status }}</span></td>
     <td class="nowrap">{{ act.duration_days }} 天</td>
     <td class="nowrap">{{ act.expires_at|date:"Y-m-d H:i"|default:"-" }}</td>
     <td>{{ act.device_info|default:"" }} <span class="mono muted">{{ act.device_hash|truncatechars:9 }}</span></td>
     <td>{{ act.transfer_count }}</td>
     <td class="nowrap">
-      <form class="inline" method="post" action="{% url 'console:activation_toggle' act.pk %}">
+      <form class="inline" method="post" action="{% url 'console:activation_toggle' act.id %}">
         {% csrf_token %}
         <input type="hidden" name="next" value="{{ request.get_full_path }}">
         <button class="link" type="submit">{% if act.disabled %}取消禁用{% else %}禁用{% endif %}</button>

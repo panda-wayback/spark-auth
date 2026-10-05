@@ -1,19 +1,88 @@
-from datetime import timedelta
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 
 from django.db import transaction
+from django.db.models import Count, Q
 from django.utils import timezone
 
 from keys import codes
+from keys import services as keys_services
 from keys.errors import ServiceError
-from keys.models import Activation, Product, SigningKey, TransferLog
 
 from . import tokens
+from .models import Activation, TransferLog
+
+
+@dataclass(frozen=True)
+class ActivationInfo:
+    id: int
+    code: str
+    product_code: str
+    device_hash: str
+    device_info: str
+    duration_days: int
+    expires_at: datetime
+    disabled: bool
+    activated_at: datetime
+    transfer_count: int
+    status: str
+
+
+@dataclass(frozen=True)
+class TransferInfo:
+    old_device_hash: str
+    old_device_info: str
+    new_device_hash: str
+    new_device_info: str
+    penalty_hours: int
+    expires_before: datetime
+    expires_after: datetime
+    created_at: datetime
+
+
+def _is_expired(activation, now):
+    return activation.expires_at <= now
+
+
+def _status(activation, now):
+    if activation.disabled:
+        return "已禁用"
+    if _is_expired(activation, now):
+        return "已到期"
+    return "有效"
+
+
+def _activation_info(activation, transfer_count, now):
+    return ActivationInfo(
+        activation.id,
+        activation.code,
+        activation.product_code,
+        activation.device_hash,
+        activation.device_info,
+        activation.duration_days,
+        activation.expires_at,
+        activation.disabled,
+        activation.activated_at,
+        transfer_count,
+        _status(activation, now),
+    )
+
+
+def _transfer_info(log):
+    return TransferInfo(
+        log.old_device_hash,
+        log.old_device_info,
+        log.new_device_hash,
+        log.new_device_info,
+        log.penalty_hours,
+        log.expires_before,
+        log.expires_after,
+        log.created_at,
+    )
 
 
 def _load_product(product_code):
-    product = Product.objects.filter(code=product_code).first()
-    if product is None:
-        raise ServiceError("PRODUCT_NOT_FOUND", "软件不存在")
+    product = keys_services.get_product_by_code(product_code)
     if product.disabled:
         raise ServiceError("PRODUCT_DISABLED", "软件已禁用")
     return product
@@ -22,20 +91,8 @@ def _load_product(product_code):
 def _check_usable(activation, now):
     if activation.disabled:
         raise ServiceError("CODE_DISABLED", "卡密已禁用")
-    if activation.is_expired(now):
+    if _is_expired(activation, now):
         raise ServiceError("CODE_EXPIRED", "卡密已到期")
-
-
-def _read_new_code(product, code):
-    signing_key = SigningKey.objects.filter(key_id=codes.read_key_id(code)).first()
-    if signing_key is None:
-        raise ServiceError("SIGNING_KEY_NOT_FOUND", "卡密所属批次不存在")
-    if signing_key.disabled:
-        raise ServiceError("SIGNING_KEY_DISABLED", "卡密所属批次已禁用，不能激活")
-    info = codes.verify_code(signing_key.private_pem, code)
-    if signing_key.product_id != product.id or info.product_code != product.code:
-        raise ServiceError("CODE_PRODUCT_MISMATCH", "卡密不属于该软件")
-    return info
 
 
 def activate(product_code, code, device_hash, device_info=""):
@@ -46,18 +103,18 @@ def activate(product_code, code, device_hash, device_info=""):
         activation = Activation.objects.select_for_update().filter(code=code).first()
 
         if activation is None:
-            info = _read_new_code(product, code)
+            batch = keys_services.check_code(product.code, code)
             activation = Activation.objects.create(
                 code=code,
-                product=product,
+                product_code=product.code,
                 device_hash=device_hash,
                 device_info=device_info,
-                duration_days=info.duration_days,
-                expires_at=now + timedelta(days=info.duration_days),
+                duration_days=batch.duration_days,
+                expires_at=now + timedelta(days=batch.duration_days),
                 activated_at=now,
             )
         else:
-            if activation.product_id != product.id:
+            if activation.product_code != product.code:
                 raise ServiceError("CODE_PRODUCT_MISMATCH", "卡密不属于该软件")
             _check_usable(activation, now)
             if activation.device_hash != device_hash:
@@ -96,10 +153,48 @@ def verify(product_code, device_hash, token):
         raise ServiceError("DEVICE_MISMATCH", "token 与当前设备不一致")
 
     product = _load_product(product_code)
-    activation = Activation.objects.filter(code=code, product=product).first()
+    activation = Activation.objects.filter(code=code, product_code=product.code).first()
     if activation is None:
         raise ServiceError("TOKEN_INVALID", "token 无效")
     _check_usable(activation, timezone.now())
     if activation.device_hash != device_hash:
         raise ServiceError("DEVICE_MISMATCH", "该卡密已绑定到其他设备")
     return activation.expires_at
+
+
+def count_by_product():
+    rows = Activation.objects.order_by().values("product_code").annotate(n=Count("id"))
+    return {row["product_code"]: row["n"] for row in rows}
+
+
+def search(product_code, query=""):
+    activations = Activation.objects.filter(product_code=product_code).annotate(n=Count("transfer_logs"))
+    query = query.strip()
+    if query:
+        activations = activations.filter(
+            Q(code__icontains=codes.normalize(query))
+            | Q(device_info__icontains=query)
+            | Q(device_hash__icontains=query)
+        )
+    now = timezone.now()
+    return [_activation_info(a, a.n, now) for a in activations]
+
+
+def _get(activation_id):
+    activation = Activation.objects.filter(pk=activation_id).first()
+    if activation is None:
+        raise ServiceError("ACTIVATION_NOT_FOUND", "激活记录不存在")
+    return activation
+
+
+def get_detail(activation_id):
+    activation = _get(activation_id)
+    logs = [_transfer_info(log) for log in activation.transfer_logs.all()]
+    return _activation_info(activation, len(logs), timezone.now()), logs
+
+
+def toggle_disabled(activation_id):
+    activation = _get(activation_id)
+    activation.disabled = not activation.disabled
+    activation.save(update_fields=["disabled"])
+    return _activation_info(activation, activation.transfer_logs.count(), timezone.now())

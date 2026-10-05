@@ -1,80 +1,102 @@
 name: keys
-function: 数据表（product、私钥批次、激活记录、换设备记录）与卡密签发、导出
+function: product 与卡密批次的数据管理、卡密签发、验证与导出
 modules: []
 input:
+  - name: keys.services.list_products
+    type: ()
+    desc: 列出全部 product，按标识排序
+  - name: keys.services.get_product
+    type: (product_id)；int
+    desc: 按 id 取 product
+  - name: keys.services.get_product_by_code
+    type: (code)；str
+    desc: 按标识取 product
+  - name: keys.services.create_product
+    type: (code, name, allow_transfer=False, transfer_penalty_hours=0)；code 只含字母、数字、- 与 _，不超过 64 字符；name 非空、不超过 128 字符；allow_transfer 为 bool；transfer_penalty_hours 为不小于 0 的整数（小时）
+    desc: 新建 product
+  - name: keys.services.update_product
+    type: (product_id, name, allow_transfer, transfer_penalty_hours, disabled)；格式同 create_product，disabled 为 bool
+    desc: 修改 product 的名称、换设备策略与禁用状态；标识不可改
   - name: keys.services.issue_codes
-    type: (product, duration_days, count=1)；product 为 Product，duration_days 为 1 至 36500 的整数（天），count 为 1 至 1000 的整数
-    desc: 批量签发卡密，同时生成新的私钥批次
-  - name: keys.services.batch_codes
-    type: (signing_key)；signing_key 为 SigningKey
-    desc: 重新取出某批次签发的全部卡密
+    type: (product_id, duration_days, count=1)；duration_days 为 1 至 36500 的整数（天），count 为 1 至 1000 的整数
+    desc: 批量签发卡密，同时生成新的卡密批次
+  - name: keys.services.list_batches
+    type: (product_id)
+    desc: 列出 product 的全部卡密批次，新批次在前
+  - name: keys.services.disable_batch
+    type: (batch_id)；str
+    desc: 禁用卡密批次；已禁用时不变
   - name: keys.services.export_codes_csv
-    type: (signing_keys)；SigningKey 的可迭代集合
-    desc: 导出所选批次签发的全部卡密
+    type: (product_id, batch_id=None)
+    desc: 导出 product 某一批次（batch_id 省略则全部批次，旧批次在前）签发的全部卡密
+  - name: keys.services.check_code
+    type: (product_code, code)；code 为用户输入的卡密，可带空白与连字符，大小写不限
+    desc: 验证卡密可用于 product 的首次激活
   - name: keys.codes.normalize
     type: (code)；用户输入的卡密字符串
     desc: 去掉空白与连字符并转大写，得到标准卡密
-  - name: keys.codes.read_key_id
-    type: (code)；卡密字符串
-    desc: 读出卡密携带的私钥批次标识，不验证签名
-  - name: keys.codes.verify_code
-    type: (private_pem, code)；private_pem 为 SigningKey.private_pem
-    desc: 用批次私钥验证卡密签名并读出内容
 output:
+  - name: keys.services.list_products
+    type: list[ProductInfo]
+    desc: ProductInfo 字段 id、code、name、allow_transfer、transfer_penalty_hours、disabled、created_at；只读属性 transfer_policy_label（策略文字）
+  - name: keys.services.get_product、get_product_by_code、create_product、update_product
+    type: ProductInfo
+    desc: 当前 product
   - name: keys.services.issue_codes
-    type: (SigningKey, list[str])
-    desc: 新建的私钥批次与本批卡密
-  - name: keys.services.batch_codes
-    type: list[str]
-    desc: 与签发时一致的卡密列表
+    type: (BatchInfo, list[str])
+    desc: 新建的批次与本批卡密；BatchInfo 字段 batch_id、product_id、product_code、duration_days、count、disabled、created_at
+  - name: keys.services.list_batches
+    type: list[BatchInfo]
+    desc: 卡密批次列表
+  - name: keys.services.disable_batch
+    type: BatchInfo
+    desc: 禁用后的批次
   - name: keys.services.export_codes_csv
     type: str（CSV 文本）
     desc: 表头 卡密、有效时长（天）、签发时间；签发时间为本地时间 YYYY-MM-DD HH:MM:SS
+  - name: keys.services.check_code
+    type: BatchInfo
+    desc: 卡密所属批次；有效时长取 duration_days
   - name: keys.codes.normalize
     type: str
     desc: 标准卡密
-  - name: keys.codes.read_key_id
-    type: str（16 位十六进制）
-    desc: 私钥批次标识
-  - name: keys.codes.verify_code
-    type: CodeInfo(key_id, product_code, issued_at, duration_days, serial)
-    desc: issued_at 为 Unix 秒
-  - name: keys.models.Product
-    type: 数据表；code（唯一标识）、name、allow_transfer、transfer_penalty_hours、disabled、created_at；transfer_policy_label（只读文字）；反向关联 signing_keys、activations
-    desc: 软件，调用方直接读写
-  - name: keys.models.SigningKey
-    type: 数据表；key_id（唯一）、product、private_pem、duration_days、count、disabled、created_at
-    desc: 私钥批次，调用方直接读写
-  - name: keys.models.Activation
-    type: 数据表；code（唯一）、product、device_hash、device_info、duration_days、expires_at、disabled、activated_at、created_at；is_expired(now=None)、status（有效 / 已到期 / 已禁用）；反向关联 transfer_logs
-    desc: 激活记录，调用方直接读写
-  - name: keys.models.TransferLog
-    type: 数据表；activation、old_device_hash、old_device_info、new_device_hash、new_device_info、penalty_hours、expires_before、expires_after、created_at
-    desc: 换设备记录，只能新增
   - name: keys.errors.ServiceError
     type: 异常；属性 code、message
     desc: 各 Module 统一使用的业务错误，code 取自各 Module 的 errors
 contract:
-  - product 标识唯一；私钥批次标识唯一
-  - 每个卡密最多一条当前激活记录
-  - 换设备记录只追加；修改或删除时抛出 PermissionError
-  - 签发的卡密难以猜测、不可伪造；同一批次内卡密互不相同
-  - 卡密自包含 product 标识、私钥批次标识、签发时间、有效时长
-  - 同一批次的卡密可随时重新取出与导出，内容与签发时一致
-  - 未激活的卡密不持久化；服务端只保存 product、私钥批次、已激活记录、换设备记录
+  - product 标识唯一、创建后不可改；批次标识唯一
+  - product 与批次不提供删除；批次禁用后不可恢复
+  - 卡密为 28 个字符的 Base32 文本，按 5 个字符一组以连字符分隔输出；输入时忽略空白、连字符与大小写
+  - 卡密只携带批次标识、序号与校验码；校验码由服务端密钥 SPARK_AUTH_SECRET_KEY 与批次随机值共同计算，只拿到其中之一无法伪造
+  - 签发的卡密难以猜测、不可伪造；同一批次内卡密互不相同；序号范围为 1 至批次数量
+  - 同一批次的卡密可随时重新导出，内容与签发时一致；更换 SPARK_AUTH_SECRET_KEY 后原有卡密全部验证失败
+  - 未激活的卡密不持久化；本 Module 只保存 product 与卡密批次
   - 批量签发整批成功或整批不生成
-  - 修改 product 换设备策略后，对该 product 下所有卡密的后续换设备立即生效
-  - 私钥批次可禁用；禁用后该批次卡密不能用于新激活，已激活记录不受影响
+  - check_code 依次检查：卡密格式、批次存在、序号不超过批次数量、校验码有效（任一不满足均为 CODE_INVALID），再检查批次未禁用、批次属于该 product；不检查 product 是否禁用
+  - 修改 product 换设备策略后，下一次读取 product 即为新策略
 depends: []
 errors:
   - code: REQUEST_INVALID
-    desc: 有效时长不是 1 至 36500 之间的整数（天）
+    desc: 参数格式错误（product 标识、名称、换设备策略、有效时长）
+  - code: PRODUCT_NOT_FOUND
+    desc: product 不存在
+  - code: PRODUCT_EXISTS
+    desc: product 标识已被使用
   - code: BATCH_COUNT_INVALID
     desc: 批量签发数量小于 1 或超过 1000
+  - code: BATCH_NOT_FOUND
+    desc: 禁用或导出时批次不存在，或不属于指定 product
+  - code: BATCH_DISABLED
+    desc: 卡密批次已被禁用
   - code: CODE_INVALID
-    desc: 卡密格式错误或签名无效
+    desc: 卡密格式错误、所属批次不存在、序号超出批次数量或校验码无效
+  - code: CODE_PRODUCT_MISMATCH
+    desc: 卡密所属批次不属于该 product
 tests:
-  - 使用临时数据库测试唯一约束与换设备记录只追加
-  - 批量签发 1 与 1000 成功且同批卡密互不相同，0 与 1001 返回 BATCH_COUNT_INVALID
-  - 签发的卡密可用对应批次验证并读出 product、有效时长；篡改或用其它批次验证返回 CODE_INVALID
-  - 重新导出的卡密与签发时一致，CSV 列顺序正确
+  - 新建 product 后可按 id 与标识取回；标识重复返回 PRODUCT_EXISTS；标识或名称格式错误返回 REQUEST_INVALID
+  - 修改 product 后策略与禁用状态立即生效，标识不变
+  - 批量签发 1 与 1000 成功且同批卡密互不相同、长度为 28 个字符，0 与 1001 返回 BATCH_COUNT_INVALID
+  - 签发的卡密经 check_code 返回所属批次与有效时长；带空白、连字符、小写的输入同样通过
+  - 篡改的卡密、格式错误的字符串、不存在批次的卡密、序号超出批次数量的卡密返回 CODE_INVALID；更换服务端密钥后返回 CODE_INVALID
+  - 其它 product 的卡密返回 CODE_PRODUCT_MISMATCH；禁用批次后返回 BATCH_DISABLED
+  - 重新导出的卡密与签发时一致，CSV 列顺序正确；按批次导出只含该批次，其它 product 的批次返回 BATCH_NOT_FOUND

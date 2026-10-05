@@ -1,12 +1,12 @@
 name: server
-function: Django 服务端：product 与私钥批次、卡密激活与校验、管理后台
+function: Django 服务端：product 与卡密批次、卡密激活与校验、管理后台
 modules:
   - path: keys
-    function: 数据表（product、私钥批次、激活记录、换设备记录）与卡密签发、导出
+    function: product 与卡密批次的数据管理、卡密签发、验证与导出
   - path: activation
-    function: 卡密签名验证、激活判定、计时与换设备扣减、token 签发与校验、客户端接口、只读 MCP 接入说明
+    function: 激活记录与换设备记录的数据、激活判定、计时与换设备扣减、token 签发与校验、客户端接口、后台查询与禁用、只读 MCP 接入说明
   - path: console
-    function: 极简管理后台：登录、软件列表、软件的卡密页、私钥批次列表、激活详情、访问地址、MCP 接入；访问地址校验
+    function: 极简管理后台：登录、软件列表、软件的卡密页、卡密批次列表、激活详情、访问地址、MCP 接入；访问地址校验
 input: []
 output: []
 contract:
@@ -14,9 +14,10 @@ contract:
   - 客户端接口无需登录；所有管理操作只能在登录后台后进行
   - 对外展示的服务地址按请求域名生成；信任反向代理的 X-Forwarded-Proto 判断 https
   - 允许访问的域名或 IP 由 console 校验，对全站生效（含客户端接口与 MCP）
+  - 卡密与 token 都依赖 SPARK_AUTH_SECRET_KEY；更换后未激活卡密与已签发 token 全部失效
 depends: []
 errors: []
 tests:
   - 组合测试：在 console 创建 product 与签发卡密后，activation 可完成激活与校验
   - 组合测试：activation 换设备后，console 的激活详情页显示新增的换设备记录
-  - 组合测试：在 console 禁用私钥批次后，同批次未激活卡密首次激活被拒绝，已激活记录仍可校验
+  - 组合测试：在 console 禁用卡密批次后，同批次未激活卡密首次激活被拒绝，已激活记录仍可校验

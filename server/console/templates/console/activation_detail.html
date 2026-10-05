@@ -3,7 +3,7 @@
 {% block content %}
 <h1>激活详情</h1>
 <p class="sub">
-  <a href="{% url 'console:keys' product.pk %}">← 返回 {{ product.name }}</a> ·
+  <a href="{% url 'console:keys' product.id %}">← 返回 {{ product.name }}</a> ·
   <span class="tag {{ activation.status }}">{{ activation.status }}</span> ·
   有效时长 {{ activation.duration_days }} 天 · 到期时间 {{ activation.expires_at|date:"Y-m-d H:i" }}
 </p>

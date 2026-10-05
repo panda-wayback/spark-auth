@@ -2,11 +2,11 @@
 
 {% block content %}
 <h1>{{ title }}</h1>
-<p class="sub"><a href="{% url 'console:keys' product.pk %}">← 返回 {{ product.name }}</a></p>
+<p class="sub"><a href="{% url 'console:keys' product.id %}">← 返回 {{ product.name }}</a></p>
 <div class="card">
   <p class="muted">
-    批次 <span class="mono">{{ signing_key.key_id }}</span> · 有效时长 {{ signing_key.duration_days }} 天 · 共 {{ signing_key.count }} 个 ·
-    <a href="{% url 'console:key_export' product.pk %}?batch={{ signing_key.key_id }}">下载本批 CSV</a>
+    批次 <span class="mono">{{ batch.batch_id }}</span> · 有效时长 {{ batch.duration_days }} 天 · 共 {{ batch.count }} 个 ·
+    <a href="{% url 'console:key_export' product.id %}?batch={{ batch.batch_id }}">下载本批 CSV</a>
   </p>
   <textarea rows="18" wrap="off" readonly>{% for code in codes %}{{ code }}
 {% endfor %}</textarea>

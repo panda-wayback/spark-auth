@@ -1,16 +1,28 @@
 name: activation
-function: 卡密签名验证、激活判定、计时与换设备扣减、token 签发与校验、客户端接口、只读 MCP 接入说明
+function: 激活记录与换设备记录的数据、激活判定、计时与换设备扣减、token 签发与校验、客户端接口、后台查询与禁用、只读 MCP 接入说明
 modules: []
 input:
   - name: POST /api/activate
     type: JSON {product, code, device_hash, device_info?}
-    desc: product 为软件标识；code 为用户输入的卡密；device_hash 为 64 位小写十六进制设备指纹哈希；device_info 为可选的可读设备信息，不超过 255 个字符
+    desc: product 为软件标识；code 为用户输入的卡密，可带空白与连字符，大小写不限；device_hash 为 64 位小写十六进制设备指纹哈希；device_info 为可选的可读设备信息，不超过 255 个字符
   - name: POST /api/verify
     type: JSON {product, device_hash, token}
     desc: token 为激活时签发的 token
   - name: POST /mcp
     type: JSON-RPC 2.0 消息
     desc: MCP Streamable HTTP（无状态）；方法 initialize、ping、tools/list、tools/call
+  - name: activation.services.count_by_product
+    type: ()
+    desc: 统计各 product 的激活记录数
+  - name: activation.services.search
+    type: (product_code, query="")
+    desc: 列出 product 的激活记录，新记录在前；query 非空时按卡密（忽略空白、连字符与大小写）、设备信息或设备指纹模糊匹配
+  - name: activation.services.get_detail
+    type: (activation_id)；int
+    desc: 取激活记录与它的全部换设备记录
+  - name: activation.services.toggle_disabled
+    type: (activation_id)；int
+    desc: 禁用或取消禁用激活记录
 output:
   - name: POST /api/activate
     type: JSON {ok:true, token, expires_at}
@@ -20,24 +32,38 @@ output:
     desc: expires_at 为 ISO 8601 到期时间
   - name: POST /api/activate、POST /api/verify 失败
     type: JSON {ok:false, error:{code, message}}
-    desc: REQUEST_INVALID 为 400，PRODUCT_NOT_FOUND 与 SIGNING_KEY_NOT_FOUND 为 404，其余为 403
+    desc: REQUEST_INVALID 为 400，PRODUCT_NOT_FOUND 为 404，其余为 403
   - name: POST /mcp
     type: JSON-RPC 2.0 响应
     desc: 直接返回 JSON；通知返回 202
+  - name: activation.services.count_by_product
+    type: dict[str, int]
+    desc: product 标识 → 激活记录数；没有激活记录的 product 不出现
+  - name: activation.services.search
+    type: list[ActivationInfo]
+    desc: ActivationInfo 字段 id、code（标准卡密）、product_code、device_hash、device_info、duration_days、expires_at、disabled、activated_at、transfer_count、status（有效 / 已到期 / 已禁用）
+  - name: activation.services.get_detail
+    type: (ActivationInfo, list[TransferInfo])
+    desc: TransferInfo 字段 old_device_hash、old_device_info、new_device_hash、new_device_info、penalty_hours、expires_before、expires_after、created_at；新记录在前
+  - name: activation.services.toggle_disabled
+    type: ActivationInfo
+    desc: 切换后的激活记录
 contract:
   - 激活、校验与 MCP 接口均无需登录
   - MCP 的 GET 请求返回 405
   - MCP 只有一个只读工具 get_activation_guide：返回按当前请求生成的服务地址、激活与校验完整地址，以及 docs/client/activation、docs/client/fingerprint 与本 interface.yaml 全文
   - 激活先检查 product 存在且未禁用，再按卡密查激活记录
-  - 已有激活记录：只依据激活记录判定（属于该 product、未禁用、未到期），不再检查私钥批次与签名
-  - 无激活记录（首次激活）：按卡密携带的批次标识找到私钥批次，批次须存在且未禁用，签名须有效，卡密内 product 须与上报一致
+  - 已有激活记录：只依据激活记录判定（属于该 product、未禁用、未到期），不再检查卡密批次与校验码
+  - 无激活记录（首次激活）：卡密须经 server/keys 验证可用于该 product（批次存在、序号在批次数量内、校验码有效、批次未禁用、批次属于该 product）
   - 未激活的卡密不过期
-  - 首次激活：写入激活记录，到期时间 = 当前时间 + 卡密内有效时长；不写换设备记录
+  - 首次激活：写入激活记录，到期时间 = 当前时间 + 卡密所属批次的有效时长；不写换设备记录
   - 同设备再次激活：签发新 token，不扣减、不重新计时、不写换设备记录
   - 新设备激活且 product 不允许换设备：拒绝
   - 新设备激活且 product 允许换设备：扣减后到期时间早于当前时间则拒绝且不改动；否则在同一事务内替换激活记录、提前到期时间、追加换设备记录
   - 校验：token 签名有效，product 存在且未禁用，激活记录未禁用、未到期，且 token 中的 device_hash 与当前激活记录一致
   - token 使用服务端密钥签名，客户端无法伪造
+  - 每个卡密最多一条激活记录；激活记录与换设备记录只能经本 Module 读写
+  - 激活记录只由激活流程写入与更新，对外只能切换禁用状态、不能删除；换设备记录只追加
 depends:
   - server/keys
 errors:
@@ -47,12 +73,10 @@ errors:
     desc: product 不存在
   - code: PRODUCT_DISABLED
     desc: product 已禁用
-  - code: SIGNING_KEY_NOT_FOUND
-    desc: 卡密携带的私钥批次不存在
-  - code: SIGNING_KEY_DISABLED
-    desc: 私钥批次已被禁用，不能用于新激活
+  - code: BATCH_DISABLED
+    desc: 卡密批次已被禁用，不能用于新激活
   - code: CODE_INVALID
-    desc: 卡密签名无效或格式错误
+    desc: 卡密格式错误、所属批次不存在、序号超出批次数量或校验码无效
   - code: CODE_DISABLED
     desc: 卡密的激活记录已被管理员禁用
   - code: CODE_EXPIRED
@@ -67,6 +91,8 @@ errors:
     desc: 校验时设备与当前激活记录不一致
   - code: TOKEN_INVALID
     desc: token 签名或内容无效
+  - code: ACTIVATION_NOT_FOUND
+    desc: 激活记录不存在
 tests:
   - 首次激活写入到期时间且无换设备记录
   - 同设备再次激活到期时间不变
@@ -76,8 +102,10 @@ tests:
   - 换设备后旧设备 token 校验返回 DEVICE_MISMATCH
   - 篡改 token 返回 TOKEN_INVALID
   - 接口参数缺失返回 REQUEST_INVALID
-  - 私钥批次禁用后同批次卡密首次激活被拒绝，已激活记录仍可换设备与校验
+  - 卡密批次禁用后同批次卡密首次激活返回 BATCH_DISABLED，已激活记录仍可换设备与校验
   - 伪造或篡改的卡密返回 CODE_INVALID；其它软件的卡密返回 CODE_PRODUCT_MISMATCH
-  - 激活记录被禁用返回 CODE_DISABLED
+  - 激活记录被禁用返回 CODE_DISABLED；到期后返回 CODE_EXPIRED
+  - count_by_product 按 product 统计；search 只返回该 product 的记录，可按带连字符的卡密、设备信息搜索
+  - get_detail 返回换设备记录；toggle_disabled 往返切换；不存在的记录返回 ACTIVATION_NOT_FOUND
   - MCP initialize、tools/list 正常；get_activation_guide 返回的地址与请求域名一致，代理声明 https 时为 https
   - MCP 未知方法返回 JSON-RPC 错误；通知返回 202；GET 返回 405
