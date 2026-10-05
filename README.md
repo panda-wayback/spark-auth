@@ -28,7 +28,7 @@ make run         # 启动开发服务（8000 端口）
 
 - `localhost`、`127.0.0.1` 始终允许。
 - 其它地址在后台「访问地址」页添加：局域网 IP、公网 IP 可一键添加，域名手动填写。
-- 列表保存在 `server/allowed_hosts.txt`（一行一个），随代码提交。
+- 列表保存在 `server/allowed_hosts.txt`（一行一个），随代码提交；设置 `SPARK_AUTH_HOSTS_PATH` 时改存该路径。
 
 ## 客户端接入
 
@@ -55,6 +55,25 @@ cd server && ../.venv/bin/python manage.py migrate
 - 部署时带上 `docs/` 目录（MCP 接入说明从中读取）和 `server/allowed_hosts.txt`。
 - 首次用域名访问前，先把域名加入 `server/allowed_hosts.txt`（本机后台添加后提交即可）。
 - 开发模式需设置 `SPARK_AUTH_DEBUG=1`（`make` 命令已自动设置），生产环境不要设置。
+
+## Docker 部署
+
+```bash
+make install            # 本机虚拟环境，用于创建管理员账号；首次运行任一 make 命令会自动生成 .env
+make superuser          # 创建管理员账号（与 Docker 共用数据库）
+make docker-up          # 构建并启动，启动时自动迁移数据库
+```
+
+其它命令：`make docker-logs` 查看日志，`make docker-down` 停止。
+
+- Docker 与本机共用 `server/db.sqlite3` 和 `server/allowed_hosts.txt`（挂载宿主机的 `server/` 目录），在哪边创建管理员、签发卡密、添加访问地址，另一边都能看到。
+- 首次运行任一 `make` 命令时，若没有 `.env`，会自动生成并写入随机的 `SPARK_AUTH_SECRET_KEY`；之后 `make` 命令都读取它，保证本机与 Docker 使用同一密钥，否则一边签发的卡密在另一边会激活失败。
+- `.env` 不提交，请自行备份；手动编辑时值不要加引号。直接用 `docker compose` 而不经 `make` 时，不会自动生成 `.env`。
+- 不要同时运行 `make run` 和 Docker 服务（两者都占 8000 端口，且同时写同一个 SQLite 文件有损坏风险）。
+- 服务监听宿主机 `127.0.0.1:8000`，由宿主机上的 nginx / caddy 对外，配置同上；要直接对局域网开放，把 `docker-compose.yml` 中的 `127.0.0.1:8000:8000` 改为 `8000:8000`。
+- 容器以 uid 1000 运行；在 Linux 上若 `server/` 目录属于其它用户，需让 uid 1000 可写该目录。
+- 容器内检测到的局域网 IP 是 Docker 内部地址，后台的局域网候选地址不可用；请手动填写或检测公网 IP。
+- 升级：`git pull && make docker-up`。
 
 ## 目录
 

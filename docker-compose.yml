@@ -1,0 +1,12 @@
+services:
+  spark-auth:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      SPARK_AUTH_SECRET_KEY: ${SPARK_AUTH_SECRET_KEY:?请在 .env 中设置 SPARK_AUTH_SECRET_KEY}
+      SPARK_AUTH_DB_PATH: /host-server/db.sqlite3
+      SPARK_AUTH_HOSTS_PATH: /host-server/allowed_hosts.txt
+    volumes:
+      - ./server:/host-server

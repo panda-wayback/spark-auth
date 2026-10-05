@@ -1,0 +1,11 @@
+.git
+.venv
+.cursor
+.cursor.zip
+.env
+data
+tools
+**/__pycache__
+**/*.pyc
+server/db.sqlite3
+server/staticfiles

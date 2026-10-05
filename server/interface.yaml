@@ -10,7 +10,8 @@ modules:
 input: []
 output: []
 contract:
-  - 业务数据存储在单个 SQLite 数据库；访问地址列表存于随代码提交的 server/allowed_hosts.txt
+  - 业务数据存储在单个 SQLite 数据库（路径由 SPARK_AUTH_DB_PATH 指定，默认 server/db.sqlite3）；访问地址列表默认存于随代码提交的 server/allowed_hosts.txt，可由 SPARK_AUTH_HOSTS_PATH 指定其它路径
+  - 提供 Docker 运行方式：挂载宿主机 server/ 目录，与本机共用 server/db.sqlite3 与 server/allowed_hosts.txt；启动时自动迁移数据库
   - 客户端接口无需登录；所有管理操作只能在登录后台后进行
   - 对外展示的服务地址按请求域名生成；信任反向代理的 X-Forwarded-Proto 判断 https
   - 允许访问的域名或 IP 由 console 校验，对全站生效（含客户端接口与 MCP）
