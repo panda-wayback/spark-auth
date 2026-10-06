@@ -15,7 +15,6 @@ if not SECRET_KEY:
     SECRET_KEY = "dev-only-insecure-secret-key"
 
 ALLOWED_HOSTS = ["*"]
-ALLOWED_HOSTS_FILE = Path(os.environ.get("SPARK_AUTH_HOSTS_PATH") or BASE_DIR / "allowed_hosts.txt")
 
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
@@ -32,7 +31,6 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
-    "console.middleware.AllowedHostMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",

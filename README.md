@@ -22,14 +22,6 @@ make run         # 启动开发服务（8000 端口）
 
 其它命令：`make test` 运行测试，`make tester` 启动激活测试页（<http://127.0.0.1:8002/>，粘贴卡密即可测试激活与校验）。
 
-## 访问地址
-
-只有允许列表里的域名或 IP 能访问服务（含后台、客户端接口、MCP）。
-
-- `localhost`、`127.0.0.1` 始终允许。
-- 其它地址在后台「访问地址」页添加：局域网 IP、公网 IP 可一键添加，域名手动填写。
-- 列表保存在 `server/allowed_hosts.txt`（一行一个），随代码提交；设置 `SPARK_AUTH_HOSTS_PATH` 时改存该路径。
-
 ## 客户端接入
 
 - 激活：`POST /api/activate`，校验：`POST /api/verify`，详见 [docs/client/activation](docs/client/activation/README.md)。
@@ -41,6 +33,7 @@ make run         # 启动开发服务（8000 端口）
 export SPARK_AUTH_SECRET_KEY='一串足够长的随机字符'   # 必填，卡密与 token 签名依赖它，更换后未激活卡密与已签发 token 全部失效
 export SPARK_AUTH_DB_PATH=/path/to/db.sqlite3        # 可选，默认 server/db.sqlite3
 cd server && ../.venv/bin/python manage.py migrate
+../.venv/bin/python manage.py createsuperuser        # 交互式创建管理员
 ../.venv/bin/gunicorn config.wsgi -b 127.0.0.1:8000 --workers 2
 ```
 
@@ -52,27 +45,39 @@ cd server && ../.venv/bin/python manage.py migrate
   proxy_set_header X-Forwarded-Proto $scheme;
   ```
 
-- 部署时带上 `docs/` 目录（MCP 接入说明从中读取）和 `server/allowed_hosts.txt`。
-- 首次用域名访问前，先把域名加入 `server/allowed_hosts.txt`（本机后台添加后提交即可）。
+- 部署时带上 `docs/` 目录（MCP 接入说明从中读取）。
+- 非交互创建管理员：同时设置 `SPARK_AUTH_ADMIN_USERNAME` 与 `SPARK_AUTH_ADMIN_PASSWORD` 后执行 `python manage.py ensure_admin`，账号已存在时不会被覆盖。
 - 开发模式需设置 `SPARK_AUTH_DEBUG=1`（`make` 命令已自动设置），生产环境不要设置。
 
 ## Docker 部署
 
+在其它项目中直接使用镜像，只需一个数据卷和三个环境变量：
+
 ```bash
-make install            # 本机虚拟环境，用于创建管理员账号；首次运行任一 make 命令会自动生成 .env
-make superuser          # 创建管理员账号（与 Docker 共用数据库）
-make docker-up          # 构建并启动，启动时自动迁移数据库
+docker run -d --name spark-auth --restart unless-stopped \
+  -p 127.0.0.1:8000:8000 \
+  -v spark-auth-data:/data \
+  -e SPARK_AUTH_SECRET_KEY='一串足够长的随机字符' \
+  -e SPARK_AUTH_ADMIN_USERNAME=admin \
+  -e SPARK_AUTH_ADMIN_PASSWORD='管理员密码' \
+  spark-auth:latest
 ```
 
-其它命令：`make docker-logs` 查看日志，`make docker-down` 停止。
+- 容器启动时自动迁移数据库；两个管理员变量同时设置且用户名不存在时自动创建超级管理员，已存在则不覆盖，之后可在后台改密码。
+- 不设置管理员变量也能启动，此时需自行进入容器执行 `python manage.py createsuperuser`。
+- 数据库固定存于数据卷 `/data/db.sqlite3`（可用 `SPARK_AUTH_DB_PATH` 改路径）；容器以 uid 1000 运行。
 
-- Docker 与本机共用 `server/db.sqlite3` 和 `server/allowed_hosts.txt`（挂载宿主机的 `server/` 目录），在哪边创建管理员、签发卡密、添加访问地址，另一边都能看到。
+本仓库内的开发式部署（与本机共用 `server/` 目录）：
+
+```bash
+make install            # 本机虚拟环境；首次运行任一 make 命令会自动生成 .env
+make docker-up          # 构建并启动，启动时自动迁移数据库；管理员变量在 .env 中设置
+```
+
+- 其它命令：`make docker-logs` 查看日志，`make docker-down` 停止。
 - 首次运行任一 `make` 命令时，若没有 `.env`，会自动生成并写入随机的 `SPARK_AUTH_SECRET_KEY`；之后 `make` 命令都读取它，保证本机与 Docker 使用同一密钥，否则一边签发的卡密在另一边会激活失败。
-- `.env` 不提交，请自行备份；手动编辑时值不要加引号。直接用 `docker compose` 而不经 `make` 时，不会自动生成 `.env`。
+- `.env` 不提交，请自行备份；手动编辑时值不要加引号。可在 `.env` 中追加 `SPARK_AUTH_ADMIN_USERNAME` 与 `SPARK_AUTH_ADMIN_PASSWORD`。
 - 不要同时运行 `make run` 和 Docker 服务（两者都占 8000 端口，且同时写同一个 SQLite 文件有损坏风险）。
-- 服务监听宿主机 `127.0.0.1:8000`，由宿主机上的 nginx / caddy 对外，配置同上；要直接对局域网开放，把 `docker-compose.yml` 中的 `127.0.0.1:8000:8000` 改为 `8000:8000`。
-- 容器以 uid 1000 运行；在 Linux 上若 `server/` 目录属于其它用户，需让 uid 1000 可写该目录。
-- 容器内检测到的局域网 IP 是 Docker 内部地址，后台的局域网候选地址不可用；请手动填写或检测公网 IP。
 - 升级：`git pull && make docker-up`。
 
 ## 目录
@@ -81,6 +86,6 @@ make docker-up          # 构建并启动，启动时自动迁移数据库
 docs/              能力文档（服务端 / 客户端规范）
 server/keys/       软件与卡密批次、卡密签发、验证与导出
 server/activation/ 激活记录与换设备记录、激活与校验接口、MCP
-server/console/    管理后台与访问地址校验
+server/console/    管理后台
 tools/             激活测试页
 ```

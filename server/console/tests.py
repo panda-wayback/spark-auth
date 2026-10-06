@@ -1,8 +1,10 @@
-import tempfile
-from pathlib import Path
+import os
+from io import StringIO
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
@@ -52,7 +54,6 @@ class AccessTests(ConsoleTestCase):
             self.url("activation_detail", activation.id),
             self.url("password"),
             self.url("mcp_setup"),
-            self.url("allowed_hosts"),
         ):
             resp = self.client.get(url)
             self.assertEqual(resp.status_code, 302, url)
@@ -221,100 +222,6 @@ class BatchPageTests(ConsoleTestCase):
         self.assertNotContains(resp, reverse("console:batch_disable", args=[batch.batch_id]))
 
 
-class AllowedHostTests(ConsoleTestCase):
-    def setUp(self):
-        super().setUp()
-        tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(tmp.cleanup)
-        self.hosts_file = Path(tmp.name) / "allowed_hosts.txt"
-        override = override_settings(ALLOWED_HOSTS_FILE=self.hosts_file)
-        override.enable()
-        self.addCleanup(override.disable)
-        self.login()
-
-    def write(self, *hosts):
-        self.hosts_file.write_text("".join(f"{h}\n" for h in hosts), encoding="utf-8")
-
-    def read(self):
-        return self.hosts_file.read_text(encoding="utf-8").split() if self.hosts_file.exists() else []
-
-    def test_unlisted_host_rejected_everywhere(self):
-        for path in (self.url("login"), "/api/activate", "/mcp"):
-            resp = self.client.get(path, HTTP_HOST="lan.example.com")
-            self.assertEqual(resp.status_code, 400, path)
-
-    def test_add_takes_effect_and_delete_revokes(self):
-        resp = self.client.post(self.url("allowed_hosts"), {"host": " LAN.Example.com "})
-        self.assertRedirects(resp, self.url("allowed_hosts"))
-        self.assertEqual(self.read(), ["lan.example.com"])
-        self.assertEqual(self.client.get(self.url("login"), HTTP_HOST="lan.example.com:8000").status_code, 200)
-
-        self.client.post(self.url("allowed_host_delete"), {"host": "lan.example.com"})
-        self.assertEqual(self.read(), [])
-        self.assertEqual(self.client.get(self.url("login"), HTTP_HOST="lan.example.com").status_code, 400)
-
-    def test_manual_file_edit_takes_effect(self):
-        self.write("# 注释", "lan.example.com")
-        self.assertEqual(self.client.get(self.url("login"), HTTP_HOST="lan.example.com").status_code, 200)
-
-    def test_subdomain_wildcard(self):
-        self.client.post(self.url("allowed_hosts"), {"host": ".example.com"})
-        self.assertEqual(self.client.get(self.url("login"), HTTP_HOST="a.example.com").status_code, 200)
-
-    def test_invalid_and_duplicate(self):
-        for value in ("http://a.com", "a.com:8000", "a.com/x", "", "localhost"):
-            resp = self.client.post(self.url("allowed_hosts"), {"host": value}, follow=True)
-            self.assertContains(resp, 'class="msg error"', msg_prefix=value)
-        self.client.post(self.url("allowed_hosts"), {"host": "a.com"})
-        resp = self.client.post(self.url("allowed_hosts"), {"host": "A.com"}, follow=True)
-        self.assertContains(resp, "已在允许列表中")
-        self.assertEqual(self.read(), ["a.com"])
-
-    def test_cannot_delete_host_in_use(self):
-        self.write("lan.example.com")
-        resp = self.client.post(
-            self.url("allowed_host_delete"), {"host": "lan.example.com"}, HTTP_HOST="lan.example.com", follow=True
-        )
-        self.assertContains(resp, "删除后会无法访问后台")
-        self.assertEqual(self.read(), ["lan.example.com"])
-
-    def test_page_lists_hosts_and_lan_candidates(self):
-        self.write("10.0.0.2")
-        with patch("console.hosts.lan_ips", return_value=["10.0.0.2", "192.168.50.112"]):
-            resp = self.client.get(self.url("allowed_hosts"))
-        self.assertContains(resp, "127.0.0.1")
-        self.assertContains(resp, "10.0.0.2")
-        self.assertContains(resp, "+ 192.168.50.112")
-        self.assertNotContains(resp, "+ 10.0.0.2")
-
-    def test_page_does_not_detect_public_ip_without_click(self):
-        with patch("console.hosts.public_ip") as public_ip:
-            resp = self.client.get(self.url("allowed_hosts"))
-        public_ip.assert_not_called()
-        self.assertContains(resp, "检测公网 IP")
-
-    def test_detect_public_ip(self):
-        with patch("console.hosts.public_ip", return_value="203.0.113.7"):
-            resp = self.client.get(self.url("allowed_hosts"), {"detect": "1"})
-        self.assertContains(resp, "+ 203.0.113.7")
-
-        self.write("203.0.113.7")
-        with patch("console.hosts.public_ip", return_value="203.0.113.7"):
-            resp = self.client.get(self.url("allowed_hosts"), {"detect": "1"})
-        self.assertContains(resp, "公网 IP 203.0.113.7 已在允许列表中")
-        self.assertNotContains(resp, "+ 203.0.113.7")
-
-    def test_detect_public_ip_failure(self):
-        for side_effect in (OSError("timeout"), None):
-            with patch("console.hosts.urllib.request.urlopen") as urlopen:
-                if side_effect:
-                    urlopen.side_effect = side_effect
-                else:
-                    urlopen.return_value.__enter__.return_value.read.return_value = b"<html>"
-                resp = self.client.get(self.url("allowed_hosts"), {"detect": "1"})
-            self.assertContains(resp, "检测公网 IP 失败")
-
-
 @override_settings(ALLOWED_HOSTS=["auth.example.com", "10.0.0.5"])
 class McpSetupPageTests(ConsoleTestCase):
     def setUp(self):
@@ -327,3 +234,40 @@ class McpSetupPageTests(ConsoleTestCase):
         self.assertContains(resp, "mcpServers")
         resp = self.client.get(self.url("mcp_setup"), HTTP_HOST="10.0.0.5:8000")
         self.assertContains(resp, "http://10.0.0.5:8000/mcp")
+
+
+class EnsureAdminCommandTests(TestCase):
+    USERNAME = "owner"
+    PASSWORD = "s3cret-pass"
+
+    def call(self, username="", password=""):
+        with patch.dict(os.environ):
+            os.environ.pop("SPARK_AUTH_ADMIN_USERNAME", None)
+            os.environ.pop("SPARK_AUTH_ADMIN_PASSWORD", None)
+            if username:
+                os.environ["SPARK_AUTH_ADMIN_USERNAME"] = username
+            if password:
+                os.environ["SPARK_AUTH_ADMIN_PASSWORD"] = password
+            call_command("ensure_admin", stdout=StringIO())
+
+    def test_creates_superuser(self):
+        self.call(self.USERNAME, self.PASSWORD)
+        user = get_user_model().objects.get(username=self.USERNAME)
+        self.assertTrue(user.is_superuser)
+        self.assertTrue(user.check_password(self.PASSWORD))
+
+    def test_existing_user_not_overwritten(self):
+        admin = get_user_model().objects.create_superuser(self.USERNAME, password="old-password")
+        self.call(self.USERNAME, self.PASSWORD)
+        admin.refresh_from_db()
+        self.assertTrue(admin.check_password("old-password"))
+
+    def test_no_variables_does_nothing(self):
+        self.call()
+        self.assertFalse(get_user_model().objects.exists())
+
+    def test_only_one_variable_raises(self):
+        with self.assertRaises(CommandError):
+            self.call(self.USERNAME, "")
+        with self.assertRaises(CommandError):
+            self.call("", self.PASSWORD)

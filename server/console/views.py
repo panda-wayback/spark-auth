@@ -13,7 +13,6 @@ from activation import services as activation_services
 from keys import services as keys_services
 from keys.errors import ServiceError
 
-from . import hosts
 from .forms import IssueCodesForm, ProductCreateForm, ProductEditForm
 
 PAGE_SIZE = 50
@@ -173,50 +172,6 @@ def batch_disable(request, batch_id):
     batch = _call(keys_services.disable_batch, batch_id)
     messages.success(request, f"批次 {batch.batch_id} 已禁用")
     return redirect("console:batches", pk=batch.product_id)
-
-
-@admin_required
-def allowed_hosts(request):
-    if request.method == "POST":
-        try:
-            host = hosts.add_host(request.POST.get("host", ""))
-            messages.success(request, f"已允许 {host}")
-        except ServiceError as exc:
-            messages.error(request, exc.message)
-        return redirect("console:allowed_hosts")
-    public_ip = None
-    if request.GET.get("detect"):
-        try:
-            public_ip = hosts.public_ip()
-        except ServiceError as exc:
-            messages.error(request, exc.message)
-        else:
-            if hosts.is_allowed(public_ip):
-                messages.success(request, f"公网 IP {public_ip} 已在允许列表中")
-                public_ip = None
-    return render(
-        request,
-        "console/allowed_hosts.html",
-        {
-            "builtin_hosts": hosts.builtin_hosts(),
-            "file_hosts": hosts.file_hosts(),
-            "candidates": hosts.candidates(),
-            "public_ip": public_ip,
-            "current_domain": hosts.request_domain(request),
-        },
-    )
-
-
-@admin_required
-@require_POST
-def allowed_host_delete(request):
-    host = request.POST.get("host", "")
-    try:
-        hosts.remove_host(host, hosts.request_domain(request))
-        messages.success(request, f"已删除 {host}")
-    except ServiceError as exc:
-        messages.error(request, exc.message)
-    return redirect("console:allowed_hosts")
 
 
 @admin_required

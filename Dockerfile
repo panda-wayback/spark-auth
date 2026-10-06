@@ -2,8 +2,7 @@ FROM python:3.13-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    SPARK_AUTH_DB_PATH=/data/db.sqlite3 \
-    SPARK_AUTH_HOSTS_PATH=/data/allowed_hosts.txt
+    SPARK_AUTH_DB_PATH=/data/db.sqlite3
 
 WORKDIR /app/server
 
@@ -18,4 +17,4 @@ USER app
 VOLUME /data
 EXPOSE 8000
 
-CMD ["sh", "-c", "[ -f \"$SPARK_AUTH_HOSTS_PATH\" ] || cp allowed_hosts.txt \"$SPARK_AUTH_HOSTS_PATH\"; python manage.py migrate --noinput && exec gunicorn config.wsgi -b 0.0.0.0:8000 --workers 2"]
+CMD ["sh", "-c", "python manage.py migrate --noinput && python manage.py ensure_admin && exec gunicorn config.wsgi -b 0.0.0.0:8000 --workers 2"]

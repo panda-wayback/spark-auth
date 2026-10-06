@@ -7,6 +7,7 @@ services:
     environment:
       SPARK_AUTH_SECRET_KEY: ${SPARK_AUTH_SECRET_KEY:?请在 .env 中设置 SPARK_AUTH_SECRET_KEY}
       SPARK_AUTH_DB_PATH: /host-server/db.sqlite3
-      SPARK_AUTH_HOSTS_PATH: /host-server/allowed_hosts.txt
+      SPARK_AUTH_ADMIN_USERNAME: ${SPARK_AUTH_ADMIN_USERNAME:-}
+      SPARK_AUTH_ADMIN_PASSWORD: ${SPARK_AUTH_ADMIN_PASSWORD:-}
     volumes:
       - ./server:/host-server

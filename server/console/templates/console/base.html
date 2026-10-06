@@ -54,7 +54,6 @@
   <header>
     <a class="brand" href="{% url 'console:products' %}">Spark Auth</a>
     <nav>
-      <a href="{% url 'console:allowed_hosts' %}">访问地址</a>
       <a href="{% url 'console:mcp_setup' %}">MCP 接入</a>
       <a href="{% url 'console:password' %}">修改密码</a>
       <form class="inline" method="post" action="{% url 'console:logout' %}">{% csrf_token %}<button class="link">退出</button></form>
