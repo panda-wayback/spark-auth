@@ -1,10 +1,4 @@
-import os
-from io import StringIO
-from unittest.mock import patch
-
 from django.contrib.auth import get_user_model
-from django.core.management import call_command
-from django.core.management.base import CommandError
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
@@ -236,38 +230,50 @@ class McpSetupPageTests(ConsoleTestCase):
         self.assertContains(resp, "http://10.0.0.5:8000/mcp")
 
 
-class EnsureAdminCommandTests(TestCase):
+class SetupTests(TestCase):
     USERNAME = "owner"
     PASSWORD = "s3cret-pass"
 
-    def call(self, username="", password=""):
-        with patch.dict(os.environ):
-            os.environ.pop("SPARK_AUTH_ADMIN_USERNAME", None)
-            os.environ.pop("SPARK_AUTH_ADMIN_PASSWORD", None)
-            if username:
-                os.environ["SPARK_AUTH_ADMIN_USERNAME"] = username
-            if password:
-                os.environ["SPARK_AUTH_ADMIN_PASSWORD"] = password
-            call_command("ensure_admin", stdout=StringIO())
+    def url(self, name="setup"):
+        return reverse(f"console:{name}")
 
-    def test_creates_superuser(self):
-        self.call(self.USERNAME, self.PASSWORD)
+    def test_everything_redirects_to_setup_when_no_admin(self):
+        for path in (self.url("login"), "/api/activate", "/mcp", "/"):
+            resp = self.client.get(path)
+            self.assertRedirects(resp, self.url(), msg_prefix=path)
+
+    def test_setup_page_available(self):
+        resp = self.client.get(self.url())
+        self.assertEqual(resp.status_code, 200)
+
+    def test_create_admin_and_login(self):
+        resp = self.client.post(
+            self.url(),
+            {"username": self.USERNAME, "password": self.PASSWORD, "password_confirm": self.PASSWORD},
+        )
+        self.assertRedirects(resp, self.url("products"))
         user = get_user_model().objects.get(username=self.USERNAME)
         self.assertTrue(user.is_superuser)
         self.assertTrue(user.check_password(self.PASSWORD))
+        self.assertEqual(int(self.client.session["_auth_user_id"]), user.id)
 
-    def test_existing_user_not_overwritten(self):
-        admin = get_user_model().objects.create_superuser(self.USERNAME, password="old-password")
-        self.call(self.USERNAME, self.PASSWORD)
-        admin.refresh_from_db()
-        self.assertTrue(admin.check_password("old-password"))
-
-    def test_no_variables_does_nothing(self):
-        self.call()
+    def test_password_mismatch(self):
+        resp = self.client.post(
+            self.url(),
+            {"username": self.USERNAME, "password": self.PASSWORD, "password_confirm": "other"},
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "两次输入的密码不一致")
         self.assertFalse(get_user_model().objects.exists())
 
-    def test_only_one_variable_raises(self):
-        with self.assertRaises(CommandError):
-            self.call(self.USERNAME, "")
-        with self.assertRaises(CommandError):
-            self.call("", self.PASSWORD)
+    def test_empty_username(self):
+        resp = self.client.post(
+            self.url(), {"username": "  ", "password": self.PASSWORD, "password_confirm": self.PASSWORD}
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(get_user_model().objects.exists())
+
+    def test_setup_unavailable_after_admin_exists(self):
+        get_user_model().objects.create_superuser("admin", password="whatever")
+        resp = self.client.get(self.url())
+        self.assertRedirects(resp, self.url("login"))

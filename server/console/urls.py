@@ -14,6 +14,7 @@ class PasswordChangeView(SuccessMessageMixin, auth_views.PasswordChangeView):
 
 
 urlpatterns = [
+    path("setup/", views.setup, name="setup"),
     path("login/", auth_views.LoginView.as_view(template_name="console/login.html"), name="login"),
     path("logout/", auth_views.LogoutView.as_view(), name="logout"),
     path("password/", PasswordChangeView.as_view(), name="password"),

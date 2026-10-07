@@ -1,6 +1,7 @@
 import json
 
 from django.contrib import messages
+from django.contrib.auth import get_user_model, login
 from django.contrib.auth.decorators import user_passes_test
 from django.core.paginator import Paginator
 from django.http import Http404, HttpResponse
@@ -13,12 +14,25 @@ from activation import services as activation_services
 from keys import services as keys_services
 from keys.errors import ServiceError
 
-from .forms import IssueCodesForm, ProductCreateForm, ProductEditForm
+from .forms import IssueCodesForm, ProductCreateForm, ProductEditForm, SetupForm
 
 PAGE_SIZE = 50
 NOT_FOUND = {"PRODUCT_NOT_FOUND", "BATCH_NOT_FOUND", "ACTIVATION_NOT_FOUND"}
 
 admin_required = user_passes_test(lambda u: u.is_active and u.is_superuser)
+
+
+def setup(request):
+    if get_user_model().objects.filter(is_superuser=True).exists():
+        return redirect("console:login")
+    form = SetupForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        user = get_user_model().objects.create_superuser(
+            form.cleaned_data["username"], password=form.cleaned_data["password"]
+        )
+        login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+        return redirect("console:products")
+    return render(request, "console/setup.html", {"form": form})
 
 
 def _call(func, *args, **kwargs):

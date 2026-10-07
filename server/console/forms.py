@@ -1,6 +1,27 @@
 from django import forms
+from django.contrib.auth import get_user_model
 
 DURATION_HELP_TEXT = "从首次激活开始计算；未激活的卡密不会过期"
+
+
+class SetupForm(forms.Form):
+    username = forms.CharField(label="账号", max_length=150)
+    password = forms.CharField(label="密码", widget=forms.PasswordInput)
+    password_confirm = forms.CharField(label="确认密码", widget=forms.PasswordInput)
+
+    def clean_username(self):
+        username = self.cleaned_data["username"].strip()
+        if not username:
+            raise forms.ValidationError("请输入账号")
+        if get_user_model().objects.filter(username=username).exists():
+            raise forms.ValidationError("该账号已存在")
+        return username
+
+    def clean(self):
+        cleaned_data = super().clean()
+        if cleaned_data.get("password") and cleaned_data.get("password") != cleaned_data.get("password_confirm"):
+            self.add_error("password_confirm", "两次输入的密码不一致")
+        return cleaned_data
 
 
 class ProductEditForm(forms.Form):

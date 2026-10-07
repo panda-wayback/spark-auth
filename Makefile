@@ -10,13 +10,12 @@ PY := $(CURDIR)/$(VENV)/bin/python
 MANAGE := cd server && SPARK_AUTH_DEBUG=1 $(PY) manage.py
 
 .DEFAULT_GOAL := help
-.PHONY: help install migrate superuser run tester test docker-up docker-down docker-logs
+.PHONY: help install migrate run tester test docker-up docker-down docker-logs
 
 help:
 	@echo "make install           创建虚拟环境并安装依赖"
 	@echo "make migrate           创建或更新数据库"
-	@echo "make superuser         创建管理员账号"
-	@echo "make run               以开发模式启动服务端（监听所有网卡的 8000 端口）"
+	@echo "make run               以开发模式启动服务端（监听所有网卡的 8000 端口），首次打开网页创建管理员"
 	@echo "make tester            启动激活码测试页（http://127.0.0.1:8002/，转发到 8000）"
 	@echo "make test              运行服务端全部测试"
 	@echo "make docker-up         构建并在 Docker 中启动服务（监听 127.0.0.1:8000；与本机共用 server/ 下的数据库）"
@@ -31,9 +30,6 @@ install: $(PY)
 
 migrate:
 	$(MANAGE) migrate
-
-superuser:
-	$(MANAGE) createsuperuser
 
 run:
 	$(MANAGE) runserver 0.0.0.0:8000

@@ -2,6 +2,7 @@ import json
 from datetime import timedelta
 from unittest.mock import patch
 
+from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
@@ -202,6 +203,7 @@ class AdminQueryTests(ActivationTestCase):
 
 class ActivationApiTests(TestCase):
     def setUp(self):
+        get_user_model().objects.create_superuser("admin", password="pw")
         product = keys_services.create_product("software-a", "A")
         _, (self.code,) = keys_services.issue_codes(product.id, 30, 1)
 
@@ -245,6 +247,9 @@ class ActivationApiTests(TestCase):
 
 @override_settings(ALLOWED_HOSTS=["auth.example.com"])
 class McpTests(TestCase):
+    def setUp(self):
+        get_user_model().objects.create_superuser("admin", password="pw")
+
     def rpc(self, method, params=None, request_id=1, **headers):
         message = {"jsonrpc": "2.0", "method": method, "params": params or {}}
         if request_id is not None:
