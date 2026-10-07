@@ -63,8 +63,8 @@ output:
 contract:
   - 激活、校验与 MCP 接口均无需登录
   - MCP 的 GET 请求返回 405
-  - MCP 只有一个只读工具 get_activation_guide：返回按当前请求生成的服务地址、激活与校验完整地址、docs/client/activation 与 docs/client/fingerprint 全文，以及本 interface.yaml 中 POST /api/activate、POST /api/verify 的 input、output 与全部 errors；不含其它 input、output 与 contract
-  - get_activation_guide 每次调用时读取上述文件，文件修改后下一次调用即返回新内容，无需重启
+  - MCP 只有一个只读工具 get_integration_guide：返回按当前请求生成的服务地址、激活、校验与核销完整地址，两种卡密（设备激活、按次数）的区别说明，docs/client/activation、docs/client/fingerprint 与 docs/client/redeem 全文，以及本 interface.yaml 中 POST /api/activate、POST /api/verify 与 server/redeem/interface.yaml 中 POST /api/redeem 的 input、output 和两者的全部 errors；不含其它 input、output 与 contract
+  - get_integration_guide 每次调用时读取上述文件，文件修改后下一次调用即返回新内容，无需重启
   - 本 Module 返回的所有错误码都列在 errors 中
   - 激活先按卡密查激活记录：首次激活由卡密批次反查 product，已有激活记录用记录上的 product_code，再检查 product 未禁用
   - 已有激活记录：只依据激活记录判定（未禁用、未到期），不再检查卡密批次与校验码
@@ -91,7 +91,7 @@ errors:
   - code: CODE_INVALID
     desc: 卡密格式错误、所属批次不存在、序号超出批次数量或校验码无效
   - code: CODE_TYPE_MISMATCH
-    desc: 卡密属于按次数 product，不能用于设备激活
+    desc: 卡密属于按次数 product，不能用于设备激活；按次数卡密应调用核销接口 POST /api/redeem
   - code: CODE_DISABLED
     desc: 卡密的激活记录已被管理员禁用
   - code: CODE_EXPIRED
@@ -121,8 +121,8 @@ tests:
   - count_by_product 按 product 统计；search 只返回该 product 的记录，可按带连字符的卡密、设备信息搜索
   - get_detail 返回换设备记录；toggle_disabled 往返切换；不存在的记录返回 ACTIVATION_NOT_FOUND
   - count_in_use_by_product 只统计未禁用且未到期的激活记录；delete_by_product 删除该 product 的激活记录与换设备记录，不影响其它 product
-  - MCP initialize、tools/list 正常；get_activation_guide 返回的地址与请求域名一致，代理声明 https 时为 https
-  - get_activation_guide 包含激活与校验接口及全部错误码，不含 activation.services 接口与 product_code
-  - 修改接入规范与 interface.yaml 后不重启，get_activation_guide 下一次调用即返回新内容
+  - MCP initialize、tools/list 正常；get_integration_guide 返回的地址与请求域名一致，代理声明 https 时为 https
+  - get_integration_guide 包含两种卡密的区别、激活、校验与核销接口及两者全部错误码，不含 activation.services、redeem.services 接口与 product_code
+  - 修改接入规范、核销规范与两份 interface.yaml 后不重启，get_integration_guide 下一次调用即返回新内容
   - 本 Module 返回的错误码都列在 errors 中
   - MCP 未知方法返回 JSON-RPC 错误；通知返回 202；GET 返回 405

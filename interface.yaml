@@ -23,4 +23,4 @@ tests:
   - Integration Test：剩余时长不足扣减时换设备被拒绝，原设备仍可用
   - Integration Test：已过期卡密被拒绝
   - Integration Test：禁用卡密批次后，同批次卡密首次激活被拒绝，但已激活设备仍可校验
-  - Integration Test：后台创建按次数软件并签发可用 2 次的卡密，模拟网页后端通过 HTTP 核销两次成功（剩余 1、0），第三次被拒绝，用该卡密激活被拒绝
+  - Integration Test：后台创建按次数软件并签发可用 2 次的卡密，模拟接入方通过 HTTP 核销两次成功（剩余 1、0），第三次被拒绝，用该卡密激活被拒绝

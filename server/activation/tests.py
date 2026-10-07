@@ -22,6 +22,8 @@ DEVICE_A = "a" * 64
 DEVICE_B = "b" * 64
 INTERFACE_RELATIVE = "server/activation/interface.yaml"
 INTERFACE_PATH = Path(__file__).resolve().parent / "interface.yaml"
+REDEEM_INTERFACE_RELATIVE = "server/redeem/interface.yaml"
+REDEEM_INTERFACE_PATH = settings.BASE_DIR.parent / REDEEM_INTERFACE_RELATIVE
 
 
 def set_policy(product, allow_transfer=None, penalty=None, disabled=None):
@@ -294,47 +296,61 @@ class McpTests(TestCase):
         self.assertEqual(body["result"]["protocolVersion"], "2025-06-18")
         self.assertIn("tools", body["result"]["capabilities"])
         tools = self.rpc("tools/list").json()["result"]["tools"]
-        self.assertEqual([t["name"] for t in tools], ["get_activation_guide"])
+        self.assertEqual([t["name"] for t in tools], ["get_integration_guide"])
+
+    def guide(self, **headers):
+        resp = self.rpc("tools/call", {"name": "get_integration_guide"}, **headers)
+        return resp.json()["result"]["content"][0]["text"]
 
     def test_guide_uses_request_host(self):
-        text = self.rpc("tools/call", {"name": "get_activation_guide"}).json()["result"]["content"][0]["text"]
+        text = self.guide()
         self.assertIn("POST http://auth.example.com/api/activate", text)
         self.assertIn("POST http://auth.example.com/api/verify", text)
-        self.assertIn("TOKEN_INVALID", text)
+        self.assertIn("POST http://auth.example.com/api/redeem", text)
         self.assertIn("设备指纹", text)
-        resp = self.rpc("tools/call", {"name": "get_activation_guide"}, HTTP_X_FORWARDED_PROTO="https")
-        self.assertIn("POST https://auth.example.com/api/activate", resp.json()["result"]["content"][0]["text"])
-
-    def guide(self):
-        return self.rpc("tools/call", {"name": "get_activation_guide"}).json()["result"]["content"][0]["text"]
+        self.assertIn("POST https://auth.example.com/api/activate", self.guide(HTTP_X_FORWARDED_PROTO="https"))
 
     def test_guide_only_client_interface(self):
         text = self.guide()
-        self.assertIn("name: POST /api/activate", text)
-        self.assertIn("name: POST /api/verify", text)
-        for error in yaml.safe_load(INTERFACE_PATH.read_text(encoding="utf-8"))["errors"]:
-            self.assertIn(error["code"], text)
-        for internal in ("activation.services", "product_code", "delete_by_product", "contract:"):
+        self.assertIn("设备激活卡密", text)
+        self.assertIn("按次数卡密", text)
+        for name in ("POST /api/activate", "POST /api/verify", "POST /api/redeem"):
+            self.assertIn(f"name: {name}", text)
+        for path in (INTERFACE_PATH, REDEEM_INTERFACE_PATH):
+            for error in yaml.safe_load(path.read_text(encoding="utf-8"))["errors"]:
+                self.assertIn(error["code"], text)
+        for internal in ("activation.services", "redeem.services", "product_code", "delete_by_product", "contract:"):
             self.assertNotIn(internal, text)
 
     def test_guide_reflects_file_changes_without_restart(self):
         root = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, root)
         source_root = settings.BASE_DIR.parent
-        for relative in ("docs/client/activation/README.md", "docs/client/fingerprint/README.md", INTERFACE_RELATIVE):
+        sources = (
+            "docs/client/activation/README.md",
+            "docs/client/fingerprint/README.md",
+            "docs/client/redeem/README.md",
+            INTERFACE_RELATIVE,
+            REDEEM_INTERFACE_RELATIVE,
+        )
+        for relative in sources:
             (root / relative).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy(source_root / relative, root / relative)
         with override_settings(BASE_DIR=root / "server"):
             self.assertNotIn("NEW_ERROR_CODE", self.guide())
-            spec_path = root / INTERFACE_RELATIVE
-            spec = yaml.safe_load(spec_path.read_text(encoding="utf-8"))
-            spec["errors"].append({"code": "NEW_ERROR_CODE", "desc": "新增错误码"})
-            spec_path.write_text(yaml.safe_dump(spec, allow_unicode=True), encoding="utf-8")
-            readme = root / "docs/client/activation/README.md"
-            readme.write_text(readme.read_text(encoding="utf-8") + "\n新增的接入说明\n", encoding="utf-8")
+            for relative, code in ((INTERFACE_RELATIVE, "NEW_ERROR_CODE"), (REDEEM_INTERFACE_RELATIVE, "NEW_REDEEM_CODE")):
+                spec_path = root / relative
+                spec = yaml.safe_load(spec_path.read_text(encoding="utf-8"))
+                spec["errors"].append({"code": code, "desc": "新增错误码"})
+                spec_path.write_text(yaml.safe_dump(spec, allow_unicode=True), encoding="utf-8")
+            for relative in ("docs/client/activation/README.md", "docs/client/redeem/README.md"):
+                readme = root / relative
+                readme.write_text(readme.read_text(encoding="utf-8") + f"\n新增说明 {relative}\n", encoding="utf-8")
             text = self.guide()
         self.assertIn("NEW_ERROR_CODE", text)
-        self.assertIn("新增的接入说明", text)
+        self.assertIn("NEW_REDEEM_CODE", text)
+        self.assertIn("新增说明 docs/client/activation/README.md", text)
+        self.assertIn("新增说明 docs/client/redeem/README.md", text)
 
     def test_errors_and_notifications(self):
         self.assertEqual(self.rpc("nope").json()["error"]["code"], -32601)
