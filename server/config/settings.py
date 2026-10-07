@@ -2,17 +2,15 @@ import os
 from datetime import timedelta
 from pathlib import Path
 
-from django.core.exceptions import ImproperlyConfigured
+from .secret import load_secret_key
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 DEBUG = os.environ.get("SPARK_AUTH_DEBUG") == "1"
 
-SECRET_KEY = os.environ.get("SPARK_AUTH_SECRET_KEY", "")
-if not SECRET_KEY:
-    if not DEBUG:
-        raise ImproperlyConfigured("必须设置环境变量 SPARK_AUTH_SECRET_KEY（token 签名依赖它）")
-    SECRET_KEY = "dev-only-insecure-secret-key"
+DB_PATH = os.environ.get("SPARK_AUTH_DB_PATH", str(BASE_DIR / "db.sqlite3"))
+
+SECRET_KEY = load_secret_key(DB_PATH)
 
 ALLOWED_HOSTS = ["*"]
 
@@ -27,10 +25,12 @@ INSTALLED_APPS = [
     "axes",
     "keys",
     "activation",
+    "redeem",
     "console",
 ]
 
 MIDDLEWARE = [
+    "config.proxy.ForwardedForMiddleware",
     "console.middleware.SetupMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -69,7 +69,7 @@ WSGI_APPLICATION = "config.wsgi.application"
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
-        "NAME": os.environ.get("SPARK_AUTH_DB_PATH", str(BASE_DIR / "db.sqlite3")),
+        "NAME": DB_PATH,
     }
 }
 

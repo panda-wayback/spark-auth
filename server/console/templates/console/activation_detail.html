@@ -17,19 +17,20 @@
   <h2>当前绑定设备</h2>
   <p>{{ activation.device_info|default:"（无设备信息）" }}</p>
   <p class="mono muted">{{ activation.device_hash }}</p>
-  <p class="muted">绑定时间 {{ activation.activated_at|date:"Y-m-d H:i" }}</p>
+  <p class="muted">绑定时间 {{ activation.activated_at|date:"Y-m-d H:i" }} · 激活 IP <span class="mono">{{ activation.ip|default:"-" }}</span></p>
 </div>
 
 <div class="card">
   <h2>换设备记录（{{ logs|length }}）</h2>
   {% if logs %}
   <table>
-    <tr><th>时间</th><th>旧设备</th><th>新设备</th><th>扣减</th><th>到期时间变化</th></tr>
+    <tr><th>时间</th><th>旧设备</th><th>新设备</th><th>新设备 IP</th><th>扣减</th><th>到期时间变化</th></tr>
     {% for log in logs %}
     <tr>
       <td class="nowrap">{{ log.created_at|date:"Y-m-d H:i" }}</td>
       <td>{{ log.old_device_info }} <span class="mono muted">{{ log.old_device_hash|truncatechars:13 }}</span></td>
       <td>{{ log.new_device_info }} <span class="mono muted">{{ log.new_device_hash|truncatechars:13 }}</span></td>
+      <td class="mono nowrap">{{ log.new_ip|default:"-" }}</td>
       <td class="nowrap">{{ log.penalty_hours }} 小时</td>
       <td>{{ log.expires_before|date:"Y-m-d H:i" }} → {{ log.expires_after|date:"Y-m-d H:i" }}</td>
     </tr>

@@ -4,8 +4,11 @@ from django.utils import timezone
 
 
 class Product(models.Model):
+    KIND_CHOICES = [("device", "设备激活"), ("count", "按次数")]
+
     code = models.SlugField("标识", max_length=64, unique=True)
     name = models.CharField("名称", max_length=128)
+    kind = models.CharField("类型", max_length=16, choices=KIND_CHOICES, default="device")
     allow_transfer = models.BooleanField("允许换设备", default=False)
     transfer_penalty_hours = models.PositiveIntegerField("换设备扣减时长（小时）", default=0)
     disabled = models.BooleanField("禁用", default=False)
@@ -24,7 +27,10 @@ class Batch(models.Model):
     batch_id = models.CharField("批次标识", max_length=10, unique=True)
     secret = models.CharField("批次随机值", max_length=32)
     product = models.ForeignKey(Product, verbose_name="所属软件", on_delete=models.PROTECT, related_name="batches")
-    duration_days = models.PositiveIntegerField("卡密有效时长（天）", validators=[MinValueValidator(1)])
+    duration_days = models.PositiveIntegerField(
+        "卡密有效时长（天）", null=True, blank=True, validators=[MinValueValidator(1)]
+    )
+    uses = models.PositiveIntegerField("每个卡密可用次数", null=True, blank=True, validators=[MinValueValidator(1)])
     count = models.PositiveIntegerField("生成数量")
     disabled = models.BooleanField("禁用", default=False)
     created_at = models.DateTimeField("生成时间", default=timezone.now)

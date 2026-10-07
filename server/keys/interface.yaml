@@ -12,13 +12,16 @@ input:
     type: (code)；str
     desc: 按标识取 product
   - name: keys.services.create_product
-    type: (code, name, allow_transfer=False, transfer_penalty_hours=0)；code 只含字母、数字、- 与 _，不超过 64 字符；name 非空、不超过 128 字符；allow_transfer 为 bool；transfer_penalty_hours 为不小于 0 的整数（小时）
+    type: (code, name, allow_transfer=False, transfer_penalty_hours=0, kind="device")；code 只含字母、数字、- 与 _，不超过 64 字符；name 非空、不超过 128 字符；allow_transfer 为 bool；transfer_penalty_hours 为不小于 0 的整数（小时）；kind 为 "device"（设备激活）或 "count"（按次数）
     desc: 新建 product
   - name: keys.services.update_product
     type: (product_id, name, allow_transfer, transfer_penalty_hours, disabled)；格式同 create_product，disabled 为 bool
-    desc: 修改 product 的名称、换设备策略与禁用状态；标识不可改
+    desc: 修改 product 的名称、换设备策略与禁用状态；标识与类型不可改
+  - name: keys.services.delete_product
+    type: (product_id)；int
+    desc: 删除 product 及其全部卡密批次；是否在使用中、使用记录的清除由调用方负责
   - name: keys.services.issue_codes
-    type: (product_id, duration_days, count=1)；duration_days 为 1 至 36500 的整数（天），count 为 1 至 1000 的整数
+    type: (product_id, duration_days, count=1, uses=None)；设备激活 product：duration_days 为 1 至 36500 的整数（天），uses 必须为 None；按次数 product：duration_days 必须为 None，uses 为 1 至 10000 的整数（每个卡密可用次数）；count 为 1 至 1000 的整数
     desc: 批量签发卡密，同时生成新的卡密批次
   - name: keys.services.list_batches
     type: (product_id)
@@ -30,21 +33,24 @@ input:
     type: (product_id, batch_id=None)
     desc: 导出 product 某一批次（batch_id 省略则全部批次，旧批次在前）签发的全部卡密
   - name: keys.services.check_code
-    type: (product_code, code)；code 为用户输入的卡密，可带空白与连字符，大小写不限
-    desc: 验证卡密可用于 product 的首次激活
+    type: (code)；code 为用户输入的卡密，可带空白与连字符，大小写不限
+    desc: 验证卡密可用于首次激活，返回其所属批次（product 由批次给出）
   - name: keys.codes.normalize
     type: (code)；用户输入的卡密字符串
     desc: 去掉空白与连字符并转大写，得到标准卡密
 output:
   - name: keys.services.list_products
     type: list[ProductInfo]
-    desc: ProductInfo 字段 id、code、name、allow_transfer、transfer_penalty_hours、disabled、created_at；只读属性 transfer_policy_label（策略文字）
+    desc: ProductInfo 字段 id、code、name、kind、allow_transfer、transfer_penalty_hours、disabled、created_at；只读属性 transfer_policy_label（策略文字）
   - name: keys.services.get_product、get_product_by_code、create_product、update_product
     type: ProductInfo
     desc: 当前 product
+  - name: keys.services.delete_product
+    type: ProductInfo
+    desc: 被删除的 product
   - name: keys.services.issue_codes
     type: (BatchInfo, list[str])
-    desc: 新建的批次与本批卡密；BatchInfo 字段 batch_id、product_id、product_code、duration_days、count、disabled、created_at
+    desc: 新建的批次与本批卡密；BatchInfo 字段 batch_id、product_id、product_code、duration_days（按次数 product 的批次为 None）、uses（设备激活 product 的批次为 None）、count、disabled、created_at
   - name: keys.services.list_batches
     type: list[BatchInfo]
     desc: 卡密批次列表
@@ -53,10 +59,10 @@ output:
     desc: 禁用后的批次
   - name: keys.services.export_codes_csv
     type: str（CSV 文本）
-    desc: 表头 卡密、有效时长（天）、签发时间；签发时间为本地时间 YYYY-MM-DD HH:MM:SS
+    desc: 表头 卡密、有效时长（天）、可用次数、签发时间；按次数 product 的有效时长列为空，设备激活 product 的可用次数列为空；签发时间为本地时间 YYYY-MM-DD HH:MM:SS
   - name: keys.services.check_code
     type: BatchInfo
-    desc: 卡密所属批次；有效时长取 duration_days
+    desc: 卡密所属批次；有效时长取 duration_days，可用次数取 uses
   - name: keys.codes.normalize
     type: str
     desc: 标准卡密
@@ -64,20 +70,21 @@ output:
     type: 异常；属性 code、message
     desc: 各 Module 统一使用的业务错误，code 取自各 Module 的 errors
 contract:
-  - product 标识唯一、创建后不可改；批次标识唯一
-  - product 与批次不提供删除；批次禁用后不可恢复
+  - product 标识唯一、创建后不可改；product 类型创建后不可改；批次标识唯一
+  - delete_product 在同一事务内删除 product 与其全部批次，之后该 product 的卡密 check_code 返回 CODE_INVALID，标识可再用于 create_product；批次不提供单独删除；批次禁用后不可恢复
   - 卡密为 28 个字符的 Base32 文本，按 5 个字符一组以连字符分隔输出；输入时忽略空白、连字符与大小写
   - 卡密只携带批次标识、序号与校验码；校验码由服务端密钥 SPARK_AUTH_SECRET_KEY 与批次随机值共同计算，只拿到其中之一无法伪造
   - 签发的卡密难以猜测、不可伪造；同一批次内卡密互不相同；序号范围为 1 至批次数量
   - 同一批次的卡密可随时重新导出，内容与签发时一致；更换 SPARK_AUTH_SECRET_KEY 后原有卡密全部验证失败
   - 未激活的卡密不持久化；本 Module 只保存 product 与卡密批次
   - 批量签发整批成功或整批不生成
-  - check_code 依次检查：卡密格式、批次存在、序号不超过批次数量、校验码有效（任一不满足均为 CODE_INVALID），再检查批次未禁用、批次属于该 product；不检查 product 是否禁用
+  - check_code 依次检查：卡密格式、批次存在、序号不超过批次数量、校验码有效（任一不满足均为 CODE_INVALID），再检查批次未禁用；不检查 product 是否禁用
   - 修改 product 换设备策略后，下一次读取 product 即为新策略
+  - 批次的有效时长与可用次数签发后不可修改
 depends: []
 errors:
   - code: REQUEST_INVALID
-    desc: 参数格式错误（product 标识、名称、换设备策略、有效时长）
+    desc: 参数格式错误（product 标识、名称、类型、换设备策略、有效时长、可用次数）
   - code: PRODUCT_NOT_FOUND
     desc: product 不存在
   - code: PRODUCT_EXISTS
@@ -90,13 +97,14 @@ errors:
     desc: 卡密批次已被禁用
   - code: CODE_INVALID
     desc: 卡密格式错误、所属批次不存在、序号超出批次数量或校验码无效
-  - code: CODE_PRODUCT_MISMATCH
-    desc: 卡密所属批次不属于该 product
 tests:
-  - 新建 product 后可按 id 与标识取回；标识重复返回 PRODUCT_EXISTS；标识或名称格式错误返回 REQUEST_INVALID
-  - 修改 product 后策略与禁用状态立即生效，标识不变
+  - 新建 product 后可按 id 与标识取回，类型默认为 device；标识重复返回 PRODUCT_EXISTS；标识、名称或类型格式错误返回 REQUEST_INVALID
+  - 修改 product 后策略与禁用状态立即生效，标识与类型不变
+  - 删除 product 后按 id 取回返回 PRODUCT_NOT_FOUND，其卡密 check_code 返回 CODE_INVALID，同一标识可再次新建；删除不存在的 product 返回 PRODUCT_NOT_FOUND
+  - 按次数 product 以 duration_days=None、uses=1 与 uses=10000 签发成功，批次 uses 与签发值一致、duration_days 为 None，导出的有效时长列为空、可用次数列为 uses；uses 为 None、0、10001 或传入有效时长返回 REQUEST_INVALID
+  - 设备激活 product 的 duration_days 为 None 或传入 uses 返回 REQUEST_INVALID；其批次 uses 为 None、导出的可用次数列为空
   - 批量签发 1 与 1000 成功且同批卡密互不相同、长度为 28 个字符，0 与 1001 返回 BATCH_COUNT_INVALID
   - 签发的卡密经 check_code 返回所属批次与有效时长；带空白、连字符、小写的输入同样通过
   - 篡改的卡密、格式错误的字符串、不存在批次的卡密、序号超出批次数量的卡密返回 CODE_INVALID；更换服务端密钥后返回 CODE_INVALID
-  - 其它 product 的卡密返回 CODE_PRODUCT_MISMATCH；禁用批次后返回 BATCH_DISABLED
+  - 禁用批次后返回 BATCH_DISABLED
   - 重新导出的卡密与签发时一致，CSV 列顺序正确；按批次导出只含该批次，其它 product 的批次返回 BATCH_NOT_FOUND

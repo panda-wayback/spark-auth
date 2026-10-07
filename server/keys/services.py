@@ -13,9 +13,11 @@ from .models import Batch, Product
 
 BATCH_MAX = 1000
 DURATION_MAX = 36500
+USES_MAX = 10000
 PRODUCT_CODE_MAX = 64
 PRODUCT_NAME_MAX = 128
-EXPORT_HEADER = ["卡密", "有效时长（天）", "签发时间"]
+PRODUCT_KINDS = ("device", "count")
+EXPORT_HEADER = ["卡密", "有效时长（天）", "可用次数", "签发时间"]
 
 _PRODUCT_CODE = re.compile(r"^[-a-zA-Z0-9_]+$")
 
@@ -25,6 +27,7 @@ class ProductInfo:
     id: int
     code: str
     name: str
+    kind: str
     allow_transfer: bool
     transfer_penalty_hours: int
     disabled: bool
@@ -44,7 +47,8 @@ class BatchInfo:
     batch_id: str
     product_id: int
     product_code: str
-    duration_days: int
+    duration_days: int | None
+    uses: int | None
     count: int
     disabled: bool
     created_at: datetime
@@ -55,6 +59,7 @@ def _product_info(product):
         product.id,
         product.code,
         product.name,
+        product.kind,
         product.allow_transfer,
         product.transfer_penalty_hours,
         product.disabled,
@@ -68,6 +73,7 @@ def _batch_info(batch):
         batch.product_id,
         batch.product.code,
         batch.duration_days,
+        batch.uses,
         batch.count,
         batch.disabled,
         batch.created_at,
@@ -107,14 +113,20 @@ def get_product_by_code(code):
     return _product_info(product)
 
 
-def create_product(code, name, allow_transfer=False, transfer_penalty_hours=0):
+def create_product(code, name, allow_transfer=False, transfer_penalty_hours=0, kind="device"):
     if not isinstance(code, str) or not _PRODUCT_CODE.match(code) or len(code) > PRODUCT_CODE_MAX:
         raise ServiceError("REQUEST_INVALID", f"标识只能用字母、数字、- 和 _，且不超过 {PRODUCT_CODE_MAX} 个字符")
+    if kind not in PRODUCT_KINDS:
+        raise ServiceError("REQUEST_INVALID", "类型只能是设备激活或按次数")
     name = _check_policy(name, allow_transfer, transfer_penalty_hours)
     try:
         with transaction.atomic():
             product = Product.objects.create(
-                code=code, name=name, allow_transfer=allow_transfer, transfer_penalty_hours=transfer_penalty_hours
+                code=code,
+                name=name,
+                kind=kind,
+                allow_transfer=allow_transfer,
+                transfer_penalty_hours=transfer_penalty_hours,
             )
     except IntegrityError:
         raise ServiceError("PRODUCT_EXISTS", "该标识已被其它软件使用")
@@ -133,6 +145,15 @@ def update_product(product_id, name, allow_transfer, transfer_penalty_hours, dis
     return _product_info(product)
 
 
+def delete_product(product_id):
+    product = _product(product_id)
+    info = _product_info(product)
+    with transaction.atomic():
+        product.batches.all().delete()
+        product.delete()
+    return info
+
+
 def _new_batch_id():
     while True:
         batch_id = codes.new_batch_id()
@@ -144,16 +165,26 @@ def _batch_codes(batch):
     return [codes.sign(batch.batch_id, batch.secret, serial) for serial in range(1, batch.count + 1)]
 
 
-def issue_codes(product_id, duration_days, count=1):
+def issue_codes(product_id, duration_days, count=1, uses=None):
+    product = _product(product_id)
     if not isinstance(count, int) or not 1 <= count <= BATCH_MAX:
         raise ServiceError("BATCH_COUNT_INVALID", f"生成数量必须在 1 到 {BATCH_MAX} 之间")
-    if not isinstance(duration_days, int) or not 1 <= duration_days <= DURATION_MAX:
-        raise ServiceError("REQUEST_INVALID", f"有效时长必须是 1 到 {DURATION_MAX} 之间的整数（天）")
+    if product.kind == "count":
+        if duration_days is not None:
+            raise ServiceError("REQUEST_INVALID", "按次数软件的卡密没有有效时长")
+        if not isinstance(uses, int) or not 1 <= uses <= USES_MAX:
+            raise ServiceError("REQUEST_INVALID", f"可用次数必须是 1 到 {USES_MAX} 之间的整数")
+    else:
+        if not isinstance(duration_days, int) or not 1 <= duration_days <= DURATION_MAX:
+            raise ServiceError("REQUEST_INVALID", f"有效时长必须是 1 到 {DURATION_MAX} 之间的整数（天）")
+        if uses is not None:
+            raise ServiceError("REQUEST_INVALID", "设备激活软件的卡密没有可用次数")
     batch = Batch.objects.create(
         batch_id=_new_batch_id(),
         secret=codes.new_batch_secret(),
-        product=_product(product_id),
+        product=product,
         duration_days=duration_days,
+        uses=uses,
         count=count,
         created_at=timezone.now().replace(microsecond=0),
     )
@@ -186,11 +217,11 @@ def export_codes_csv(product_id, batch_id=None):
     for batch in batches:
         issued = timezone.localtime(batch.created_at).strftime("%Y-%m-%d %H:%M:%S")
         for code in _batch_codes(batch):
-            writer.writerow([code, batch.duration_days, issued])
+            writer.writerow([code, batch.duration_days or "", batch.uses or "", issued])
     return buffer.getvalue()
 
 
-def check_code(product_code, code):
+def check_code(code):
     batch_id, serial = codes.read(code)
     batch = Batch.objects.select_related("product").filter(batch_id=batch_id).first()
     if batch is None or not 1 <= serial <= batch.count:
@@ -198,6 +229,4 @@ def check_code(product_code, code):
     codes.verify(code, batch.secret)
     if batch.disabled:
         raise ServiceError("BATCH_DISABLED", "卡密所属批次已禁用，不能激活")
-    if batch.product.code != product_code:
-        raise ServiceError("CODE_PRODUCT_MISMATCH", "卡密不属于该软件")
     return _batch_info(batch)

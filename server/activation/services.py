@@ -20,6 +20,7 @@ class ActivationInfo:
     product_code: str
     device_hash: str
     device_info: str
+    ip: str | None
     duration_days: int
     expires_at: datetime
     disabled: bool
@@ -34,6 +35,7 @@ class TransferInfo:
     old_device_info: str
     new_device_hash: str
     new_device_info: str
+    new_ip: str | None
     penalty_hours: int
     expires_before: datetime
     expires_after: datetime
@@ -59,6 +61,7 @@ def _activation_info(activation, transfer_count, now):
         activation.product_code,
         activation.device_hash,
         activation.device_info,
+        activation.ip,
         activation.duration_days,
         activation.expires_at,
         activation.disabled,
@@ -74,6 +77,7 @@ def _transfer_info(log):
         log.old_device_info,
         log.new_device_hash,
         log.new_device_info,
+        log.new_ip,
         log.penalty_hours,
         log.expires_before,
         log.expires_after,
@@ -95,27 +99,29 @@ def _check_usable(activation, now):
         raise ServiceError("CODE_EXPIRED", "卡密已到期")
 
 
-def activate(product_code, code, device_hash, device_info=""):
+def activate(code, device_hash, device_info="", ip=None):
     code = codes.normalize(code)
     now = timezone.now()
     with transaction.atomic():
-        product = _load_product(product_code)
         activation = Activation.objects.select_for_update().filter(code=code).first()
 
         if activation is None:
-            batch = keys_services.check_code(product.code, code)
+            batch = keys_services.check_code(code)
+            product = _load_product(batch.product_code)
+            if product.kind != "device":
+                raise ServiceError("CODE_TYPE_MISMATCH", "按次数卡密不能用于设备激活")
             activation = Activation.objects.create(
                 code=code,
                 product_code=product.code,
                 device_hash=device_hash,
                 device_info=device_info,
+                ip=ip,
                 duration_days=batch.duration_days,
                 expires_at=now + timedelta(days=batch.duration_days),
                 activated_at=now,
             )
         else:
-            if activation.product_code != product.code:
-                raise ServiceError("CODE_PRODUCT_MISMATCH", "卡密不属于该软件")
+            product = _load_product(activation.product_code)
             _check_usable(activation, now)
             if activation.device_hash != device_hash:
                 if not product.allow_transfer:
@@ -131,6 +137,7 @@ def activate(product_code, code, device_hash, device_info=""):
                     old_device_info=activation.device_info,
                     new_device_hash=device_hash,
                     new_device_info=device_info,
+                    new_ip=ip,
                     penalty_hours=penalty,
                     expires_before=activation.expires_at,
                     expires_after=new_expires,
@@ -138,17 +145,16 @@ def activate(product_code, code, device_hash, device_info=""):
                 )
                 activation.device_hash = device_hash
                 activation.device_info = device_info
+                activation.ip = ip
                 activation.activated_at = now
                 activation.expires_at = new_expires
-                activation.save(update_fields=["device_hash", "device_info", "activated_at", "expires_at"])
+                activation.save(update_fields=["device_hash", "device_info", "ip", "activated_at", "expires_at"])
 
     return tokens.issue(product.code, code, device_hash), activation.expires_at
 
 
-def verify(product_code, device_hash, token):
-    token_product, code, token_device = tokens.read(token)
-    if token_product != product_code:
-        raise ServiceError("TOKEN_INVALID", "token 不属于该软件")
+def verify(device_hash, token):
+    product_code, code, token_device = tokens.read(token)
     if token_device != device_hash:
         raise ServiceError("DEVICE_MISMATCH", "token 与当前设备不一致")
 
@@ -165,6 +171,23 @@ def verify(product_code, device_hash, token):
 def count_by_product():
     rows = Activation.objects.order_by().values("product_code").annotate(n=Count("id"))
     return {row["product_code"]: row["n"] for row in rows}
+
+
+def count_in_use_by_product():
+    rows = (
+        Activation.objects.filter(disabled=False, expires_at__gt=timezone.now())
+        .order_by()
+        .values("product_code")
+        .annotate(n=Count("id"))
+    )
+    return {row["product_code"]: row["n"] for row in rows}
+
+
+def delete_by_product(product_code):
+    with transaction.atomic():
+        TransferLog.objects.filter(activation__product_code=product_code).delete()
+        deleted, _ = Activation.objects.filter(product_code=product_code).delete()
+    return deleted
 
 
 def search(product_code, query=""):

@@ -21,7 +21,9 @@ class ProductTests(KeysTestCase):
         self.assertEqual(services.get_product(product.id), product)
         self.assertEqual(services.get_product_by_code("software-a"), product)
         self.assertEqual(product.transfer_policy_label, "允许换设备，每次扣 24 小时")
+        self.assertEqual(product.kind, "device")
         self.assertEqual(services.list_products(), [product])
+        self.assertEqual(services.create_product("service-b", "B", kind="count").kind, "count")
 
     def test_create_invalid(self):
         services.create_product("software-a", "A")
@@ -29,14 +31,25 @@ class ProductTests(KeysTestCase):
         for code, name in (("bad code", "A"), ("", "A"), ("x" * 65, "A"), ("ok", ""), ("ok", "x" * 129)):
             self.assertCode("REQUEST_INVALID", services.create_product, code, name)
         self.assertCode("REQUEST_INVALID", services.create_product, "ok", "A", False, -1)
+        self.assertCode("REQUEST_INVALID", services.create_product, "ok", "A", kind="other")
 
-    def test_update_keeps_code(self):
-        product = services.create_product("software-a", "A")
+    def test_update_keeps_code_and_kind(self):
+        product = services.create_product("software-a", "A", kind="count")
         updated = services.update_product(product.id, "新名字", True, 0, True)
         self.assertEqual(
-            (updated.code, updated.name, updated.allow_transfer, updated.disabled), ("software-a", "新名字", True, True)
+            (updated.code, updated.kind, updated.name, updated.allow_transfer, updated.disabled),
+            ("software-a", "count", "新名字", True, True),
         )
         self.assertEqual(services.get_product_by_code("software-a"), updated)
+
+    def test_delete_with_batches(self):
+        product = services.create_product("software-a", "A")
+        _, (code,) = services.issue_codes(product.id, 30, 1)
+        self.assertEqual(services.delete_product(product.id).code, "software-a")
+        self.assertCode("PRODUCT_NOT_FOUND", services.get_product, product.id)
+        self.assertCode("CODE_INVALID", services.check_code, code)
+        self.assertEqual(services.create_product("software-a", "A2").code, "software-a")
+        self.assertCode("PRODUCT_NOT_FOUND", services.delete_product, 999)
 
     def test_not_found(self):
         self.assertCode("PRODUCT_NOT_FOUND", services.get_product, 999)
@@ -63,6 +76,27 @@ class IssueTests(KeysTestCase):
             self.assertCode("REQUEST_INVALID", services.issue_codes, self.product.id, days, 1)
         self.assertEqual(services.list_batches(self.product.id), [])
 
+    def test_count_product_uses(self):
+        product = services.create_product("service-b", "B", kind="count")
+        batch, issued = services.issue_codes(product.id, None, 2, uses=1)
+        self.assertEqual((batch.duration_days, batch.uses), (None, 1))
+        many, _ = services.issue_codes(product.id, None, 1, uses=10000)
+        self.assertEqual(services.check_code(issued[0]).uses, 1)
+        self.assertEqual(many.uses, 10000)
+        rows = list(csv.reader(io.StringIO(services.export_codes_csv(product.id, batch.batch_id))))
+        self.assertEqual([(r[1], r[2]) for r in rows[1:]], [("", "1"), ("", "1")])
+        for duration_days, uses in ((None, None), (None, 0), (None, 10001), (30, 5)):
+            self.assertCode("REQUEST_INVALID", services.issue_codes, product.id, duration_days, 1, uses)
+        self.assertEqual(len(services.list_batches(product.id)), 2)
+
+    def test_device_product_has_no_uses(self):
+        self.assertCode("REQUEST_INVALID", services.issue_codes, self.product.id, None, 1)
+        self.assertCode("REQUEST_INVALID", services.issue_codes, self.product.id, 30, 1, 5)
+        batch, _ = services.issue_codes(self.product.id, 30, 1)
+        self.assertIsNone(batch.uses)
+        rows = list(csv.reader(io.StringIO(services.export_codes_csv(self.product.id))))
+        self.assertEqual((rows[1][1], rows[1][2]), ("30", ""))
+
     def test_disable_is_one_way(self):
         batch, _ = services.issue_codes(self.product.id, 30, 1)
         self.assertTrue(services.disable_batch(batch.batch_id).disabled)
@@ -76,27 +110,27 @@ class CheckCodeTests(KeysTestCase):
         self.batch, self.codes = services.issue_codes(self.product.id, 7, 2)
 
     def test_returns_batch(self):
-        batch = services.check_code("software-a", self.codes[1])
+        batch = services.check_code(self.codes[1])
         self.assertEqual((batch.batch_id, batch.duration_days, batch.product_code), (self.batch.batch_id, 7, "software-a"))
 
     def test_input_is_normalized(self):
         messy = "  " + self.codes[0].lower().replace("-", " - ") + "\n"
         self.assertEqual(codes.normalize(messy), codes.normalize(self.codes[0]))
-        services.check_code("software-a", messy)
+        services.check_code(messy)
 
     def test_tampered_or_malformed(self):
         code = codes.normalize(self.codes[0])
         tampered = code[:20] + ("A" if code[20] != "A" else "B") + code[21:]
         for bad in (tampered, code[:-1], "NOT A CODE!", ""):
-            self.assertCode("CODE_INVALID", services.check_code, "software-a", bad)
+            self.assertCode("CODE_INVALID", services.check_code, bad)
 
     def test_secret_key_rotation_invalidates(self):
         with override_settings(SECRET_KEY="another-secret"):
-            self.assertCode("CODE_INVALID", services.check_code, "software-a", self.codes[0])
+            self.assertCode("CODE_INVALID", services.check_code, self.codes[0])
 
     def test_batch_secret_required(self):
         Batch.objects.filter(batch_id=self.batch.batch_id).update(secret=codes.new_batch_secret())
-        self.assertCode("CODE_INVALID", services.check_code, "software-a", self.codes[0])
+        self.assertCode("CODE_INVALID", services.check_code, self.codes[0])
 
     def test_unknown_batch_and_serial_out_of_range(self):
         secret = Batch.objects.get(batch_id=self.batch.batch_id).secret
@@ -105,14 +139,12 @@ class CheckCodeTests(KeysTestCase):
             codes.sign(self.batch.batch_id, secret, 0),
             codes.sign(self.batch.batch_id, secret, 3),
         ):
-            self.assertCode("CODE_INVALID", services.check_code, "software-a", bad)
-        services.check_code("software-a", codes.sign(self.batch.batch_id, secret, 2))
+            self.assertCode("CODE_INVALID", services.check_code, bad)
+        services.check_code(codes.sign(self.batch.batch_id, secret, 2))
 
-    def test_product_mismatch_and_disabled_batch(self):
-        services.create_product("software-b", "B")
-        self.assertCode("CODE_PRODUCT_MISMATCH", services.check_code, "software-b", self.codes[0])
+    def test_disabled_batch(self):
         services.disable_batch(self.batch.batch_id)
-        self.assertCode("BATCH_DISABLED", services.check_code, "software-a", self.codes[0])
+        self.assertCode("BATCH_DISABLED", services.check_code, self.codes[0])
 
 
 class ExportTests(KeysTestCase):

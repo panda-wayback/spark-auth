@@ -4,11 +4,25 @@
 <h1>{{ title }}</h1>
 <p class="sub"><a href="{% url 'console:products' %}">← 返回软件列表</a></p>
 <div class="card form" style="max-width: 480px;">
-  {% if product %}<p><label>标识</label><span class="mono">{{ product.code }}</span><span class="helptext">接入方软件激活时上报的软件标识；创建后不能修改</span></p>{% endif %}
+  {% if product %}<p><label>标识</label><span class="mono">{{ product.code }}</span><span class="helptext">后台区分软件用；创建后不能修改</span></p>
+  <p><label>类型</label>{% if product.kind == "count" %}按次数{% else %}设备激活{% endif %}<span class="helptext">创建后不能修改</span></p>{% endif %}
   <form method="post">
     {% csrf_token %}
     {{ form.as_p }}
     <button class="primary" type="submit">保存</button>
   </form>
 </div>
+<script>
+  (function () {
+    const kind = document.getElementById("id_kind");
+    if (!kind) return;
+    const rows = ["id_allow_transfer", "id_transfer_penalty_hours"]
+      .map((id) => document.getElementById(id))
+      .filter(Boolean)
+      .map((input) => input.closest("p"));
+    const sync = () => rows.forEach((row) => { row.hidden = kind.value === "count"; });
+    kind.addEventListener("change", sync);
+    sync();
+  })();
+</script>
 {% endblock %}

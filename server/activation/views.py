@@ -14,7 +14,6 @@ _DEVICE_INFO_MAX = 255
 
 _STATUS = {
     "REQUEST_INVALID": 400,
-    "PRODUCT_NOT_FOUND": 404,
 }
 
 
@@ -47,12 +46,12 @@ def _parse(request, required):
 @require_POST
 def activate(request):
     try:
-        data = _parse(request, ("product", "code", "device_hash"))
+        data = _parse(request, ("code", "device_hash"))
         token, expires_at = services.activate(
-            data["product"].strip(),
             data["code"].strip(),
             data["device_hash"],
             data.get("device_info", ""),
+            request.META.get("REMOTE_ADDR"),
         )
     except ServiceError as exc:
         return _error(exc)
@@ -63,8 +62,8 @@ def activate(request):
 @require_POST
 def verify(request):
     try:
-        data = _parse(request, ("product", "device_hash", "token"))
-        expires_at = services.verify(data["product"].strip(), data["device_hash"], data["token"])
+        data = _parse(request, ("device_hash", "token"))
+        expires_at = services.verify(data["device_hash"], data["token"])
     except ServiceError as exc:
         return _error(exc)
     return JsonResponse({"ok": True, "valid": True, "expires_at": expires_at.isoformat()})

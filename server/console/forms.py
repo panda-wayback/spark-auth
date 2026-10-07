@@ -27,10 +27,12 @@ class SetupForm(forms.Form):
 class ProductEditForm(forms.Form):
     name = forms.CharField(label="名称", help_text="只在后台显示，可随时修改")
     allow_transfer = forms.BooleanField(
-        label="允许换设备", required=False, help_text="不勾选时，卡密绑定第一台设备后不能换到其它设备"
+        label="允许换设备",
+        required=False,
+        help_text="仅设备激活软件有效；不勾选时，卡密绑定第一台设备后不能换到其它设备",
     )
     transfer_penalty_hours = forms.IntegerField(
-        label="换设备扣减时长（小时）", initial=0, help_text="0 表示换设备不扣除时长；1 天填 24"
+        label="换设备扣减时长（小时）", initial=0, help_text="仅设备激活软件有效；0 表示换设备不扣除时长；1 天填 24"
     )
     disabled = forms.BooleanField(
         label="禁用",
@@ -40,13 +42,19 @@ class ProductEditForm(forms.Form):
 
 
 class ProductCreateForm(ProductEditForm):
-    code = forms.CharField(
-        label="标识", help_text="接入方软件激活时上报的软件标识，只能用字母、数字、- 和 _；创建后不能修改"
+    code = forms.CharField(label="标识", help_text="后台区分软件用，只能用字母、数字、- 和 _；创建后不能修改")
+    kind = forms.ChoiceField(
+        label="类型",
+        choices=[("device", "设备激活"), ("count", "按次数")],
+        help_text="设备激活：卡密在接入方软件中激活并绑定设备；按次数：卡密由服务后端核销，每次扣 1 次，签发时设定次数。创建后不能修改",
     )
     disabled = None
-    field_order = ["code", "name", "allow_transfer", "transfer_penalty_hours"]
+    field_order = ["code", "name", "kind", "allow_transfer", "transfer_penalty_hours"]
 
 
 class IssueCodesForm(forms.Form):
     count = forms.IntegerField(label="数量", initial=1)
-    duration_days = forms.IntegerField(label="有效天数", min_value=1, initial=30, help_text=DURATION_HELP_TEXT)
+    duration_days = forms.IntegerField(
+        label="有效天数", min_value=1, initial=30, required=False, help_text=DURATION_HELP_TEXT
+    )
+    uses = forms.IntegerField(label="可用次数", min_value=1, initial=1, required=False)

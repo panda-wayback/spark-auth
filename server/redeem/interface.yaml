@@ -1,0 +1,76 @@
+name: redeem
+function: 按次数卡密的核销记录数据、核销接口、后台按卡密汇总与明细查询
+modules: []
+input:
+  - name: POST /api/redeem
+    type: JSON {code}
+    desc: code 为用户输入的卡密，可带空白与连字符，大小写不限，product 由卡密所属批次在服务端确定
+  - name: redeem.services.count_by_product
+    type: ()
+    desc: 统计各 product 的核销记录数
+  - name: redeem.services.search
+    type: (product_code, query="")
+    desc: 按卡密汇总列出 product 的已核销卡密，每个卡密一项，最近核销的在前；query 非空时按卡密模糊匹配（忽略空白、连字符与大小写）
+  - name: redeem.services.get_code_detail
+    type: (code)；str，可带空白与连字符，大小写不限
+    desc: 取一个卡密的汇总与它的全部核销记录
+  - name: redeem.services.count_in_use_by_product
+    type: ()
+    desc: 统计各 product 使用中（已核销但次数未用完）的卡密数
+  - name: redeem.services.delete_by_product
+    type: (product_code)；str
+    desc: 删除 product 的全部核销记录，供删除 product 时调用
+output:
+  - name: POST /api/redeem
+    type: JSON {ok:true, remaining, redeemed_at}
+    desc: remaining 为本次核销后剩余次数（整数，不小于 0）；redeemed_at 为 ISO 8601 核销时间
+  - name: POST /api/redeem 失败
+    type: JSON {ok:false, error:{code, message}}
+    desc: REQUEST_INVALID 为 400，其余为 403
+  - name: redeem.services.count_by_product
+    type: dict[str, int]
+    desc: product 标识 → 核销记录数（即已使用总次数）；没有核销记录的 product 不出现
+  - name: redeem.services.search
+    type: list[CodeUsage]
+    desc: CodeUsage 字段 code（标准卡密）、product_code、used（已核销次数）、uses（可用次数）、first_redeemed_at、last_redeemed_at；只读属性 remaining（= uses - used）、status（使用中 / 已用完）
+  - name: redeem.services.get_code_detail
+    type: (CodeUsage, list[RedemptionInfo])
+    desc: RedemptionInfo 字段 code（标准卡密）、product_code、seq（第几次，从 1 开始）、uses、redeemed_at、ip（核销 IP，旧记录为 None），只读属性 remaining（= uses - seq）；新记录在前
+  - name: redeem.services.count_in_use_by_product
+    type: dict[str, int]
+    desc: product 标识 → 使用中的卡密数；没有使用中卡密的 product 不出现
+  - name: redeem.services.delete_by_product
+    type: int
+    desc: 删除的核销记录数
+contract:
+  - 核销接口无需登录
+  - 核销依次检查：卡密经 server/keys 验证通过（批次存在、序号在批次数量内、校验码有效、批次未禁用），所属 product 未禁用且类型为 count，该卡密已核销次数小于批次可用次数；全部通过才写入一条核销记录
+  - 每次核销成功写入一条核销记录，同一卡密的 seq 依次为 1、2、…、可用次数；记录核销 IP，取请求的 REMOTE_ADDR（代理头由 server 统一处理），只供查看、不参与判定
+  - 同一卡密并发核销时成功次数不超过可用次数，超出的返回 CODE_USED
+  - 核销记录只追加，不能修改，只能经 delete_by_product 按 product 整体删除；只能经本 Module 读写
+depends:
+  - server/keys
+errors:
+  - code: REQUEST_INVALID
+    desc: 请求参数缺失或格式错误
+  - code: CODE_USED
+    desc: 卡密可用次数已用完
+  - code: CODE_INVALID
+    desc: 卡密格式错误、所属批次不存在、序号超出批次数量或校验码无效
+  - code: BATCH_DISABLED
+    desc: 卡密批次已被禁用
+  - code: PRODUCT_DISABLED
+    desc: product 已禁用
+  - code: CODE_TYPE_MISMATCH
+    desc: 卡密属于设备激活 product，不能核销
+  - code: REDEMPTION_NOT_FOUND
+    desc: get_code_detail 的卡密没有核销记录
+tests:
+  - 可用 1 次的卡密核销成功返回 remaining 0 与核销时间，写入一条 seq 为 1 的核销记录；再次核销返回 CODE_USED，带空白、连字符、小写的同一卡密也返回 CODE_USED
+  - 可用 3 次的卡密依次核销返回 remaining 2、1、0，第 4 次返回 CODE_USED，共 3 条核销记录且 seq 为 1、2、3
+  - 伪造或篡改的卡密返回 CODE_INVALID；批次禁用返回 BATCH_DISABLED；product 禁用返回 PRODUCT_DISABLED；均不写核销记录
+  - 设备激活 product 的卡密返回 CODE_TYPE_MISMATCH
+  - 接口参数缺失或请求体不是 JSON 对象返回 REQUEST_INVALID（400）；成功响应含 remaining；核销记录的 ip 为请求来源 IP
+  - count_in_use_by_product 只统计已核销且次数未用完的卡密；delete_by_product 只删除该 product 的核销记录
+  - count_by_product 按 product 统计核销记录数；search 只返回该 product 的卡密，每个卡密一项（used、首次与最近核销时间、使用中 / 已用完），可按带连字符的小写卡密搜索
+  - get_code_detail 返回汇总与全部核销记录（seq 从大到小）；没有核销记录的卡密返回 REDEMPTION_NOT_FOUND

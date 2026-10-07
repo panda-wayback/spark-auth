@@ -1,50 +1,44 @@
 -include .env
 export SPARK_AUTH_SECRET_KEY
 
-.env:
-	@echo "SPARK_AUTH_SECRET_KEY=$$(python3 -c 'import secrets; print(secrets.token_urlsafe(50))')" > $@
-	@echo "已生成 .env（随机 SPARK_AUTH_SECRET_KEY）。请妥善备份：丢失或更换会使未激活卡密与已签发 token 失效。"
-
 VENV := .venv
 PY := $(CURDIR)/$(VENV)/bin/python
+DEPS := $(VENV)/.deps-installed
 MANAGE := cd server && SPARK_AUTH_DEBUG=1 $(PY) manage.py
 
 .DEFAULT_GOAL := help
-.PHONY: help install migrate run tester test docker-up docker-down docker-logs
+.PHONY: help install migrate run test docker-up docker-down docker-logs
 
 help:
-	@echo "make install           创建虚拟环境并安装依赖"
-	@echo "make migrate           创建或更新数据库"
-	@echo "make run               以开发模式启动服务端（监听所有网卡的 8000 端口），首次打开网页创建管理员"
-	@echo "make tester            启动激活码测试页（http://127.0.0.1:8002/，转发到 8000）"
+	@echo "make run               一条命令启动开发服务（自动建虚拟环境、安装依赖、迁移数据库；监听 8000 端口）"
 	@echo "make test              运行服务端全部测试"
-	@echo "make docker-up         构建并在 Docker 中启动服务（监听 127.0.0.1:8000；与本机共用 server/ 下的数据库）"
-	@echo "make docker-down       停止 Docker 服务"
-	@echo "make docker-logs       查看 Docker 服务日志"
+	@echo "make install           只创建虚拟环境并安装依赖"
+	@echo "make migrate           只创建或更新数据库"
+	@echo "make docker-up         在 Docker 中启动开发服务（与本机共用 server/ 下的数据库与密钥）"
+	@echo "make docker-down       停止 Docker 开发服务"
+	@echo "make docker-logs       查看 Docker 开发服务日志"
 
-$(PY):
-	python3 -m venv $(VENV)
-
-install: $(PY)
+$(DEPS): server/requirements.txt
+	test -x $(PY) || python3 -m venv $(VENV)
 	$(PY) -m pip install -r server/requirements.txt
+	touch $@
 
-migrate:
+install: $(DEPS)
+
+migrate: $(DEPS)
 	$(MANAGE) migrate
 
-run:
+run: migrate
 	$(MANAGE) runserver 0.0.0.0:8000
 
-tester:
-	$(PY) tools/activation_tester.py
-
-test:
+test: $(DEPS)
 	$(MANAGE) test
 
 docker-up:
-	docker compose up -d --build
+	docker compose -f docker-compose.dev.yml up -d --build
 
 docker-down:
-	docker compose down
+	docker compose -f docker-compose.dev.yml down
 
 docker-logs:
-	docker compose logs -f
+	docker compose -f docker-compose.dev.yml logs -f

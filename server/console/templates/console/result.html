@@ -5,7 +5,7 @@
 <p class="sub"><a href="{% url 'console:keys' product.id %}">← 返回 {{ product.name }}</a></p>
 <div class="card">
   <p class="muted">
-    批次 <span class="mono">{{ batch.batch_id }}</span> · 有效时长 {{ batch.duration_days }} 天 · 共 {{ batch.count }} 个 ·
+    批次 <span class="mono">{{ batch.batch_id }}</span> ·{% if batch.duration_days %} 有效时长 {{ batch.duration_days }} 天 ·{% endif %}{% if batch.uses %} 可用 {{ batch.uses }} 次 ·{% endif %} 共 {{ batch.count }} 个 ·
     <a href="{% url 'console:key_export' product.id %}?batch={{ batch.batch_id }}">下载本批 CSV</a>
   </p>
   <textarea rows="18" wrap="off" readonly>{% for code in codes %}{{ code }}

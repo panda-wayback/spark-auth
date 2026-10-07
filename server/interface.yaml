@@ -1,23 +1,32 @@
 name: server
-function: Django 服务端：product 与卡密批次、卡密激活与校验、管理后台
+function: Django 服务端：product 与卡密批次、卡密激活与校验、按次数卡密核销、管理后台
 modules:
   - path: keys
     function: product 与卡密批次的数据管理、卡密签发、验证与导出
   - path: activation
     function: 激活记录与换设备记录的数据、激活判定、计时与换设备扣减、token 签发与校验、客户端接口、后台查询与禁用、只读 MCP 接入说明
+  - path: redeem
+    function: 按次数卡密的核销记录数据、核销接口、后台按卡密汇总与明细查询
   - path: console
-    function: 极简管理后台：登录、软件列表、软件的卡密页、卡密批次列表、激活详情、MCP 接入
+    function: 极简管理后台：登录、软件列表、软件的卡密页（含卡密测试窗口）、卡密批次列表、激活详情、核销详情、MCP 接入
 input: []
 output: []
 contract:
   - 业务数据存储在单个 SQLite 数据库（路径由 SPARK_AUTH_DB_PATH 指定，默认 server/db.sqlite3）
-  - 提供 Docker 运行方式：启动时自动迁移数据库；首次打开网页时在初始化页创建管理员
-  - 客户端接口无需登录；所有管理操作只能在登录后台后进行
+  - 提供 Docker 运行方式：只需挂载数据卷、无需环境变量；启动时自动迁移数据库；首次打开网页时在初始化页创建管理员
+  - 客户端接口与 /healthz 无需登录；所有管理操作只能在登录后台后进行
   - 对外展示的服务地址按请求域名生成；信任反向代理的 X-Forwarded-Proto 判断 https
-  - 卡密与 token 都依赖 SPARK_AUTH_SECRET_KEY；更换后未激活卡密与已签发 token 全部失效
+  - 请求来源 IP：请求带 X-Forwarded-For 且最后一项是合法 IP 时，以它覆盖 REMOTE_ADDR，否则保留连接地址；各 Module 只读 REMOTE_ADDR，不自行解析代理头
+  - 服务端密钥取环境变量 SPARK_AUTH_SECRET_KEY；未设置或为空时取数据库同目录的 secret_key 文件，文件不存在则启动时生成（仅所有者可读写），之后每次启动沿用
+  - 卡密与 token 都依赖服务端密钥；更换后未激活卡密与已签发 token 全部失效
+  - GET /healthz：数据库可访问时返回 200 JSON {ok:true}，否则返回 503 JSON {ok:false}；系统未初始化时同样可访问
 depends: []
 errors: []
 tests:
   - 组合测试：在 console 创建 product 与签发卡密后，activation 可完成激活与校验
   - 组合测试：activation 换设备后，console 的激活详情页显示新增的换设备记录
   - 组合测试：在 console 禁用卡密批次后，同批次未激活卡密首次激活被拒绝，已激活记录仍可校验
+  - 组合测试：系统未初始化时 /healthz 返回 200，不跳转初始化页；数据库不可访问时返回 503
+  - 未设置 SPARK_AUTH_SECRET_KEY 时生成 secret_key 文件且再次加载沿用同一密钥；设置环境变量时以环境变量为准、不生成文件
+  - 组合测试：经代理（X-Forwarded-For 最后一项为客户端 IP）激活与核销，console 的激活详情与核销详情页显示该 IP；X-Forwarded-For 不是合法 IP 时记录连接地址
+  - 组合测试：在 console 创建按次数软件并签发卡密后，redeem 按次数核销成功且 console 卡密页显示核销记录，次数用完后核销被拒绝，activation 激活该卡密被拒绝

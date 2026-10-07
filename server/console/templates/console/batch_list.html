@@ -3,22 +3,26 @@
 {% block content %}
 <h1>{{ product.name }} · 卡密批次</h1>
 <p class="sub"><a href="{% url 'console:keys' product.id %}">← 返回卡密页</a></p>
+{% if product.kind == "count" %}
+<p class="helptext" style="margin: -12px 0 16px;">每次签发卡密生成一个批次。禁用后，该批次的卡密不能再核销（包括还有剩余次数的）。禁用不可恢复。</p>
+{% else %}
 <p class="helptext" style="margin: -12px 0 16px;">每次签发卡密生成一个批次。禁用后，该批次还没激活的卡密不能再激活；已经激活的设备不受影响。禁用不可恢复。</p>
+{% endif %}
 
 {% if batches %}
 <table>
-  <tr><th>批次标识</th><th>生成时间</th><th>数量</th><th>有效时长</th><th>状态</th><th></th></tr>
+  <tr><th>批次标识</th><th>生成时间</th><th>数量</th>{% if product.kind == "count" %}<th>可用次数</th>{% else %}<th>有效时长</th>{% endif %}<th>状态</th><th></th></tr>
   {% for batch in batches %}
   <tr>
     <td class="mono">{{ batch.batch_id }}</td>
     <td class="nowrap">{{ batch.created_at|date:"Y-m-d H:i" }}</td>
     <td>{{ batch.count }}</td>
-    <td class="nowrap">{{ batch.duration_days }} 天</td>
+    {% if product.kind == "count" %}<td class="nowrap">{{ batch.uses }} 次</td>{% else %}<td class="nowrap">{{ batch.duration_days }} 天</td>{% endif %}
     <td>{% if batch.disabled %}<span class="tag 已禁用">已禁用</span>{% else %}<span class="tag 有效">正常</span>{% endif %}</td>
     <td class="nowrap">
       {% if not batch.disabled %}
       <form class="inline" method="post" action="{% url 'console:batch_disable' batch.batch_id %}"
-            onsubmit="return confirm('禁用后该批次未激活的卡密将无法激活，且不能恢复。确定禁用？');">
+            onsubmit="return confirm('禁用后该批次未使用的卡密将无法使用，且不能恢复。确定禁用？');">
         {% csrf_token %}
         <button class="link" type="submit">禁用</button>
       </form>

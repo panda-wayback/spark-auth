@@ -7,17 +7,30 @@
 </div>
 {% if rows %}
 <table>
-  <tr><th>名称</th><th>标识</th><th>换设备策略</th><th>已激活</th><th>状态</th><th></th></tr>
-  {% for product, active_count in rows %}
+  <tr><th>名称</th><th>标识</th><th>类型</th><th>换设备策略</th><th>已使用</th><th>状态</th><th></th></tr>
+  {% for product, used_count, deletable in rows %}
   <tr>
     <td><a href="{% url 'console:keys' product.id %}">{{ product.name }}</a></td>
     <td class="mono">{{ product.code }}</td>
+    {% if product.kind == "count" %}
+    <td>按次数</td>
+    <td class="muted">-</td>
+    {% else %}
+    <td>设备激活</td>
     <td>{{ product.transfer_policy_label }}</td>
-    <td>{{ active_count }}</td>
+    {% endif %}
+    <td>{{ used_count }}</td>
     <td>{% if product.disabled %}<span class="tag 已禁用">已禁用</span>{% else %}<span class="tag 有效">正常</span>{% endif %}</td>
     <td class="nowrap">
       <a class="btn primary" href="{% url 'console:keys' product.id %}">管理卡密 →</a>
       <a href="{% url 'console:product_edit' product.id %}" style="margin-left: 12px;">编辑</a>
+      {% if deletable %}
+      <form class="inline" method="post" action="{% url 'console:product_delete' product.id %}"
+            onsubmit="return confirm('删除后该软件已签发的卡密全部失效，激活与核销记录一并删除，且不能恢复。确定删除 {{ product.name|escapejs }}？');">
+        {% csrf_token %}
+        <button class="link" type="submit" style="margin-left: 12px; color: #cf222e;">删除</button>
+      </form>
+      {% endif %}
     </td>
   </tr>
   {% endfor %}

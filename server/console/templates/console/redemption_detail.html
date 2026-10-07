@@ -1,0 +1,29 @@
+{% extends "console/base.html" %}
+
+{% block content %}
+<h1>核销详情</h1>
+<p class="sub">
+  <a href="{% url 'console:keys' product.id %}">← 返回 {{ product.name }}</a> ·
+  <span class="tag {{ usage.status }}">{{ usage.status }}</span> ·
+  已用 {{ usage.used }} / 可用 {{ usage.uses }} 次 · 剩余 {{ usage.remaining }} 次
+</p>
+
+<div class="card">
+  <h2>卡密</h2>
+  <p class="mono" style="word-break: break-all; margin: 0;">{{ usage.code }}</p>
+</div>
+
+<div class="card">
+  <h2>核销记录（{{ records|length }}）</h2>
+  <table>
+    <tr><th>第几次</th><th>核销时间</th><th>核销 IP</th></tr>
+    {% for rec in records %}
+    <tr>
+      <td class="nowrap">{{ rec.seq }} / {{ rec.uses }}</td>
+      <td class="nowrap">{{ rec.redeemed_at|date:"Y-m-d H:i:s" }}</td>
+      <td class="mono nowrap">{{ rec.ip|default:"-" }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% endblock %}

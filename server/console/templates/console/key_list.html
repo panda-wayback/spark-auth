@@ -4,7 +4,7 @@
 <h1>{{ product.name }} <span class="muted mono" style="font-size: 14px;">{{ product.code }}</span></h1>
 <p class="sub">
   <a href="{% url 'console:products' %}">← 软件列表</a> ·
-  {{ product.transfer_policy_label }}{% if product.disabled %} · <span class="tag 已禁用">已禁用</span>{% endif %} ·
+  {% if product.kind == "count" %}按次数{% else %}{{ product.transfer_policy_label }}{% endif %}{% if product.disabled %} · <span class="tag 已禁用">已禁用</span>{% endif %} ·
   <a href="{% url 'console:product_edit' product.id %}">编辑软件</a> ·
   <a href="{% url 'console:batches' product.id %}">卡密批次</a>
 </p>
@@ -13,25 +13,112 @@
   <strong>签发卡密</strong>
   <form method="post" action="{% url 'console:key_issue' product.id %}">
     {% csrf_token %}
+    {% if product.kind == "count" %}
+    数量 {{ issue_form.count }} 可用次数 {{ issue_form.uses }}
+    <button class="primary" type="submit">签发</button>
+    <span class="helptext">每核销一次扣 1 次，用完作废；可用次数填 1 即一次性卡密</span>
+    {% else %}
     数量 {{ issue_form.count }} 有效天数 {{ issue_form.duration_days }}
     <button class="primary" type="submit">签发</button>
     <span class="helptext">有效天数{{ issue_form.duration_days.help_text }}</span>
+    {% endif %}
   </form>
   <strong>导出 CSV</strong>
   <form method="get" action="{% url 'console:key_export' product.id %}">
     <select name="batch">
       <option value="">全部批次</option>
       {% for batch in batches %}
-      <option value="{{ batch.batch_id }}">{{ batch.created_at|date:"Y-m-d H:i" }} · {{ batch.count }} 个 · {{ batch.duration_days }} 天</option>
+      <option value="{{ batch.batch_id }}">{{ batch.created_at|date:"Y-m-d H:i" }} · {{ batch.count }} 个{% if batch.duration_days %} · {{ batch.duration_days }} 天{% endif %}{% if batch.uses %} · {{ batch.uses }} 次{% endif %}</option>
       {% endfor %}
     </select>
     <button type="submit">下载卡密</button>
   </form>
 </div>
 
-<h2 style="font-size: 16px; margin: 0 0 10px;">已激活记录</h2>
+<div class="card actions">
+  <strong>测试卡密</strong>
+  <div>
+    <input type="text" id="test-code" class="mono" size="36" placeholder="粘贴卡密">
+    {% if product.kind == "count" %}
+    <button type="button" data-api="/api/redeem">核销</button>
+    <span class="helptext">真实核销，会扣减次数并写入核销记录</span>
+    {% else %}
+    设备名 <input type="text" id="test-device" value="测试设备-1">
+    <button type="button" data-api="/api/activate">激活</button>
+    <button type="button" data-api="/api/verify">校验</button>
+    <span class="helptext">真实激活，会写入激活记录；改设备名即模拟换设备，device_hash = sha256(设备名)</span>
+    {% endif %}
+  </div>
+  {% if product.kind != "count" %}
+  <strong>token</strong>
+  <div><input type="text" id="test-token" class="mono" style="flex: 1;" placeholder="激活成功后自动填入"></div>
+  {% endif %}
+  <strong>结果</strong>
+  <div><pre id="test-output" class="mono muted" style="margin: 0; white-space: pre-wrap; word-break: break-all;">尚未请求</pre></div>
+</div>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  // crypto.subtle 只在 https 或 localhost 下可用，后台可能经 http://IP 访问
+  function sha256(text) {
+    const primes = [];
+    for (let n = 2; primes.length < 64; n++) if (primes.every((p) => n % p)) primes.push(n);
+    const frac = (x) => ((x - Math.floor(x)) * 2 ** 32) >>> 0;
+    const K = primes.map((p) => frac(Math.cbrt(p)));
+    let H = primes.slice(0, 8).map((p) => frac(Math.sqrt(p)));
+    const bytes = new TextEncoder().encode(text), len = bytes.length;
+    const words = new Uint32Array(((len + 72) >> 6) << 4);
+    bytes.forEach((b, i) => { words[i >> 2] |= b << (24 - (i % 4) * 8); });
+    words[len >> 2] |= 0x80 << (24 - (len % 4) * 8);
+    words[words.length - 1] = len * 8;
+    const rotr = (x, n) => (x >>> n) | (x << (32 - n));
+    const w = new Uint32Array(64);
+    for (let i = 0; i < words.length; i += 16) {
+      for (let t = 0; t < 64; t++) {
+        if (t < 16) { w[t] = words[i + t]; continue; }
+        const x = w[t - 15], y = w[t - 2];
+        w[t] = (rotr(x, 7) ^ rotr(x, 18) ^ (x >>> 3)) + (rotr(y, 17) ^ rotr(y, 19) ^ (y >>> 10)) + w[t - 7] + w[t - 16];
+      }
+      let [a, b, c, d, e, f, g, h] = H;
+      for (let t = 0; t < 64; t++) {
+        const t1 = h + (rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25)) + ((e & f) ^ (~e & g)) + K[t] + w[t];
+        const t2 = (rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22)) + ((a & b) ^ (a & c) ^ (b & c));
+        [h, g, f, e, d, c, b, a] = [g, f, e, (d + t1) >>> 0, c, b, a, (t1 + t2) >>> 0];
+      }
+      H = [a, b, c, d, e, f, g, h].map((v, j) => (v + H[j]) >>> 0);
+    }
+    return H.map((v) => v.toString(16).padStart(8, "0")).join("");
+  }
+  function body(api) {
+    if (api === "/api/redeem") return { code: $("test-code").value };
+    const device = $("test-device").value;
+    if (api === "/api/activate") return { code: $("test-code").value, device_hash: sha256(device), device_info: device };
+    return { device_hash: sha256(device), token: $("test-token").value.trim() };
+  }
+  document.querySelectorAll("[data-api]").forEach((button) => button.addEventListener("click", async () => {
+    const api = button.dataset.api, out = $("test-output");
+    out.textContent = "请求中…";
+    try {
+      const resp = await fetch(api, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body(api)),
+      });
+      const text = await resp.text();
+      let data = null;
+      try { data = JSON.parse(text); } catch {}
+      out.textContent = `${api} → HTTP ${resp.status}\n` + (data ? JSON.stringify(data, null, 2) : text);
+      out.style.color = data && data.ok ? "#1a7f37" : "#cf222e";
+      if (api === "/api/activate" && data && data.ok) $("test-token").value = data.token;
+    } catch (e) {
+      out.textContent = "请求失败：" + e;
+      out.style.color = "#cf222e";
+    }
+  }));
+})();
+</script>
+
+<h2 style="font-size: 16px; margin: 0 0 10px;">{% if product.kind == "count" %}核销记录{% else %}已激活记录{% endif %}</h2>
 <form method="get" class="bar">
-  <input type="search" name="q" value="{{ query }}" placeholder="搜索卡密或设备">
+  <input type="search" name="q" value="{{ query }}" placeholder="{% if product.kind == "count" %}搜索卡密{% else %}搜索卡密或设备{% endif %}">
   <button type="submit">搜索</button>
   {% if query %}<a href="{% url 'console:keys' product.id %}">清除</a>{% endif %}
   <span class="muted">共 {{ page.paginator.count }} 个</span>
@@ -40,6 +127,18 @@
 {% if page.object_list %}
 <div class="scroll">
 <table>
+  {% if product.kind == "count" %}
+  <tr><th>卡密</th><th>状态</th><th>已用 / 可用</th><th>首次核销</th><th>最近核销</th></tr>
+  {% for usage in page.object_list %}
+  <tr>
+    <td class="mono nowrap"><a href="{% url 'console:redemption_detail' usage.code %}">{{ usage.code }}</a></td>
+    <td class="nowrap"><span class="tag {{ usage.status }}">{{ usage.status }}</span></td>
+    <td class="nowrap">{{ usage.used }} / {{ usage.uses }}</td>
+    <td class="nowrap">{{ usage.first_redeemed_at|date:"Y-m-d H:i:s" }}</td>
+    <td class="nowrap">{{ usage.last_redeemed_at|date:"Y-m-d H:i:s" }}</td>
+  </tr>
+  {% endfor %}
+  {% else %}
   <tr><th>卡密</th><th>状态</th><th>有效时长</th><th>到期时间</th><th>当前设备</th><th>换设备次数</th><th></th></tr>
   {% for act in page.object_list %}
   <tr>
@@ -58,6 +157,7 @@
     </td>
   </tr>
   {% endfor %}
+  {% endif %}
 </table>
 </div>
 {% if page.paginator.num_pages > 1 %}
@@ -67,6 +167,8 @@
   {% if page.has_next %}<a href="?q={{ query|urlencode }}&page={{ page.next_page_number }}">下一页</a>{% endif %}
 </div>
 {% endif %}
+{% elif product.kind == "count" %}
+<div class="card muted">{% if query %}没有匹配的核销记录。{% else %}还没有核销记录，用上面的「签发卡密」生成后交给服务后端核销。{% endif %}</div>
 {% else %}
 <div class="card muted">{% if query %}没有匹配的激活记录。{% else %}还没有激活记录，用上面的「签发卡密」生成后去客户端激活。{% endif %}</div>
 {% endif %}

@@ -2,6 +2,7 @@
 __pycache__/
 *.pyc
 server/db.sqlite3
+server/secret_key
 server/staticfiles/
 .env
 data/test/

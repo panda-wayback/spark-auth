@@ -4,6 +4,7 @@ from django.contrib import messages
 from django.contrib.auth import get_user_model, login
 from django.contrib.auth.decorators import user_passes_test
 from django.core.paginator import Paginator
+from django.db import transaction
 from django.http import Http404, HttpResponse
 from django.shortcuts import redirect, render
 from django.urls import reverse
@@ -13,11 +14,12 @@ from django.views.decorators.http import require_POST
 from activation import services as activation_services
 from keys import services as keys_services
 from keys.errors import ServiceError
+from redeem import services as redeem_services
 
 from .forms import IssueCodesForm, ProductCreateForm, ProductEditForm, SetupForm
 
 PAGE_SIZE = 50
-NOT_FOUND = {"PRODUCT_NOT_FOUND", "BATCH_NOT_FOUND", "ACTIVATION_NOT_FOUND"}
+NOT_FOUND = {"PRODUCT_NOT_FOUND", "BATCH_NOT_FOUND", "ACTIVATION_NOT_FOUND", "REDEMPTION_NOT_FOUND"}
 
 admin_required = user_passes_test(lambda u: u.is_active and u.is_superuser)
 
@@ -57,19 +59,50 @@ def _safe_next(request, fallback):
     return fallback
 
 
+def _in_use_counts():
+    return {
+        "device": activation_services.count_in_use_by_product(),
+        "count": redeem_services.count_in_use_by_product(),
+    }
+
+
 @admin_required
 def product_list(request):
-    counts = activation_services.count_by_product()
-    rows = [(p, counts.get(p.code, 0)) for p in keys_services.list_products()]
+    counts = {
+        "device": activation_services.count_by_product(),
+        "count": redeem_services.count_by_product(),
+    }
+    in_use = _in_use_counts()
+    rows = [
+        (p, counts[p.kind].get(p.code, 0), not in_use[p.kind].get(p.code, 0)) for p in keys_services.list_products()
+    ]
     return render(request, "console/product_list.html", {"rows": rows})
+
+
+@admin_required
+@require_POST
+def product_delete(request, pk):
+    product = _call(keys_services.get_product, pk)
+    with transaction.atomic():
+        if _in_use_counts()[product.kind].get(product.code, 0):
+            messages.error(request, f"{product.name} 还有使用中的卡密，不能删除；可在编辑中禁用")
+            return redirect("console:products")
+        activation_services.delete_by_product(product.code)
+        redeem_services.delete_by_product(product.code)
+        keys_services.delete_product(pk)
+    messages.success(request, f"已删除 {product.name}（{product.code}）")
+    return redirect("console:products")
 
 
 @admin_required
 def product_create(request):
     form = ProductCreateForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
+        data = form.cleaned_data
+        if data["kind"] == "count":
+            data.update(allow_transfer=False, transfer_penalty_hours=0)
         try:
-            product = keys_services.create_product(**form.cleaned_data)
+            product = keys_services.create_product(**data)
         except ServiceError as exc:
             form.add_error(None, exc.message)
         else:
@@ -87,9 +120,12 @@ def product_edit(request, pk):
         "disabled": product.disabled,
     }
     form = ProductEditForm(request.POST or None, initial=initial)
+    if product.kind == "count":
+        del form.fields["allow_transfer"], form.fields["transfer_penalty_hours"]
     if request.method == "POST" and form.is_valid():
+        data = {**initial, **form.cleaned_data}
         try:
-            keys_services.update_product(pk, **form.cleaned_data)
+            keys_services.update_product(pk, **data)
         except ServiceError as exc:
             form.add_error(None, exc.message)
         else:
@@ -106,8 +142,11 @@ def product_edit(request, pk):
 def key_list(request, pk):
     product = _call(keys_services.get_product, pk)
     query = request.GET.get("q", "").strip()
-    activations = activation_services.search(product.code, query)
-    page = Paginator(activations, PAGE_SIZE).get_page(request.GET.get("page"))
+    if product.kind == "count":
+        records = redeem_services.search(product.code, query)
+    else:
+        records = activation_services.search(product.code, query)
+    page = Paginator(records, PAGE_SIZE).get_page(request.GET.get("page"))
     return render(
         request,
         "console/key_list.html",
@@ -129,8 +168,12 @@ def key_issue(request, pk):
     if not form.is_valid():
         messages.error(request, _first_error(form))
         return redirect("console:keys", pk=pk)
+    if product.kind == "count":
+        duration_days, uses = None, form.cleaned_data["uses"]
+    else:
+        duration_days, uses = form.cleaned_data["duration_days"], None
     try:
-        batch, codes = keys_services.issue_codes(pk, form.cleaned_data["duration_days"], form.cleaned_data["count"])
+        batch, codes = keys_services.issue_codes(pk, duration_days, form.cleaned_data["count"], uses)
     except ServiceError as exc:
         messages.error(request, exc.message)
         return redirect("console:keys", pk=pk)
@@ -160,6 +203,17 @@ def activation_detail(request, pk):
         request,
         "console/activation_detail.html",
         {"activation": activation, "product": product, "logs": logs},
+    )
+
+
+@admin_required
+def redemption_detail(request, code):
+    usage, records = _call(redeem_services.get_code_detail, code)
+    product = keys_services.get_product_by_code(usage.product_code)
+    return render(
+        request,
+        "console/redemption_detail.html",
+        {"usage": usage, "product": product, "records": records},
     )
 
 
