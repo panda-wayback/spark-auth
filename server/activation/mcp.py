@@ -1,5 +1,6 @@
 import json
 
+import yaml
 from django.conf import settings
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -13,15 +14,26 @@ TOOL = {
     "description": "获取 Spark Auth 激活服务的接入说明：服务地址、激活/校验接口、请求响应与错误码、设备指纹采集规范。编写接入激活的客户端代码前调用。",
     "inputSchema": {"type": "object", "properties": {}},
 }
-SOURCES = (
+DOCS = (
     ("客户端激活接入规范", "docs/client/activation/README.md"),
     ("客户端设备指纹规范", "docs/client/fingerprint/README.md"),
-    ("激活接口契约", "server/activation/interface.yaml"),
 )
+INTERFACE = "server/activation/interface.yaml"
+CLIENT_API_PREFIX = "POST /api/"
 
 
 def base_url(request):
     return request.build_absolute_uri("/").rstrip("/")
+
+
+def client_interface(root):
+    spec = yaml.safe_load((root / INTERFACE).read_text(encoding="utf-8"))
+    picked = {
+        key: [item for item in spec.get(key) or [] if item["name"].startswith(CLIENT_API_PREFIX)]
+        for key in ("input", "output")
+    }
+    picked["errors"] = spec.get("errors") or []
+    return yaml.safe_dump(picked, allow_unicode=True, sort_keys=False, width=1000)
 
 
 def activation_guide(request):
@@ -31,9 +43,10 @@ def activation_guide(request):
         f"服务地址：{url}\n\n- 激活：POST {url}/api/activate\n- 校验：POST {url}/api/verify",
     ]
     root = settings.BASE_DIR.parent
-    for title, relative in SOURCES:
+    for title, relative in DOCS:
         content = (root / relative).read_text(encoding="utf-8")
         parts.append(f"## {title}（{relative}）\n\n{content}")
+    parts.append(f"## 激活与校验接口（{INTERFACE}）\n\n```yaml\n{client_interface(root)}```")
     return "\n\n".join(parts)
 
 

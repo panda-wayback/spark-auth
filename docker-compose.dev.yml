@@ -6,6 +6,7 @@ services:
       - "127.0.0.1:8000:8000"
     environment:
       SPARK_AUTH_SECRET_KEY: ${SPARK_AUTH_SECRET_KEY:-}
-      SPARK_AUTH_DB_PATH: /host-server/db.sqlite3
+      SPARK_AUTH_DB_PATH: /app/server/db.sqlite3
     volumes:
-      - ./server:/host-server
+      - ./server:/app/server
+      - ./docs:/app/docs:ro

@@ -1,9 +1,15 @@
 import json
+import re
+import shutil
+import tempfile
 from datetime import timedelta
+from pathlib import Path
 from unittest.mock import patch
 
+import yaml
+from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 
 from keys import services as keys_services
@@ -14,6 +20,8 @@ from .models import Activation, TransferLog
 
 DEVICE_A = "a" * 64
 DEVICE_B = "b" * 64
+INTERFACE_RELATIVE = "server/activation/interface.yaml"
+INTERFACE_PATH = Path(__file__).resolve().parent / "interface.yaml"
 
 
 def set_policy(product, allow_transfer=None, penalty=None, disabled=None):
@@ -297,8 +305,51 @@ class McpTests(TestCase):
         resp = self.rpc("tools/call", {"name": "get_activation_guide"}, HTTP_X_FORWARDED_PROTO="https")
         self.assertIn("POST https://auth.example.com/api/activate", resp.json()["result"]["content"][0]["text"])
 
+    def guide(self):
+        return self.rpc("tools/call", {"name": "get_activation_guide"}).json()["result"]["content"][0]["text"]
+
+    def test_guide_only_client_interface(self):
+        text = self.guide()
+        self.assertIn("name: POST /api/activate", text)
+        self.assertIn("name: POST /api/verify", text)
+        for error in yaml.safe_load(INTERFACE_PATH.read_text(encoding="utf-8"))["errors"]:
+            self.assertIn(error["code"], text)
+        for internal in ("activation.services", "product_code", "delete_by_product", "contract:"):
+            self.assertNotIn(internal, text)
+
+    def test_guide_reflects_file_changes_without_restart(self):
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, root)
+        source_root = settings.BASE_DIR.parent
+        for relative in ("docs/client/activation/README.md", "docs/client/fingerprint/README.md", INTERFACE_RELATIVE):
+            (root / relative).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(source_root / relative, root / relative)
+        with override_settings(BASE_DIR=root / "server"):
+            self.assertNotIn("NEW_ERROR_CODE", self.guide())
+            spec_path = root / INTERFACE_RELATIVE
+            spec = yaml.safe_load(spec_path.read_text(encoding="utf-8"))
+            spec["errors"].append({"code": "NEW_ERROR_CODE", "desc": "新增错误码"})
+            spec_path.write_text(yaml.safe_dump(spec, allow_unicode=True), encoding="utf-8")
+            readme = root / "docs/client/activation/README.md"
+            readme.write_text(readme.read_text(encoding="utf-8") + "\n新增的接入说明\n", encoding="utf-8")
+            text = self.guide()
+        self.assertIn("NEW_ERROR_CODE", text)
+        self.assertIn("新增的接入说明", text)
+
     def test_errors_and_notifications(self):
         self.assertEqual(self.rpc("nope").json()["error"]["code"], -32601)
         self.assertEqual(self.rpc("tools/call", {"name": "nope"}).json()["error"]["code"], -32602)
         self.assertEqual(self.rpc("notifications/initialized", request_id=None).status_code, 202)
         self.assertEqual(self.client.get("/mcp", HTTP_HOST="auth.example.com").status_code, 405)
+
+
+class InterfaceErrorsTests(SimpleTestCase):
+    def test_raised_codes_are_listed(self):
+        listed = {e["code"] for e in yaml.safe_load(INTERFACE_PATH.read_text(encoding="utf-8"))["errors"]}
+        module_dir = Path(__file__).resolve().parent
+        raised = set()
+        for path in module_dir.glob("*.py"):
+            if path.name != "tests.py":
+                raised |= set(re.findall(r'ServiceError\(\s*"([A-Z_]+)"', path.read_text(encoding="utf-8")))
+        self.assertTrue(raised)
+        self.assertEqual(raised - listed, set())
