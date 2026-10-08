@@ -307,6 +307,7 @@ class McpTests(TestCase):
         self.assertIn("POST http://auth.example.com/api/activate", text)
         self.assertIn("POST http://auth.example.com/api/verify", text)
         self.assertIn("POST http://auth.example.com/api/redeem", text)
+        self.assertIn("POST http://auth.example.com/api/redeem/status", text)
         self.assertIn("设备指纹", text)
         self.assertIn("POST https://auth.example.com/api/activate", self.guide(HTTP_X_FORWARDED_PROTO="https"))
 
@@ -314,7 +315,7 @@ class McpTests(TestCase):
         text = self.guide()
         self.assertIn("设备激活卡密", text)
         self.assertIn("按次数卡密", text)
-        for name in ("POST /api/activate", "POST /api/verify", "POST /api/redeem"):
+        for name in ("POST /api/activate", "POST /api/verify", "POST /api/redeem", "POST /api/redeem/status"):
             self.assertIn(f"name: {name}", text)
         for path in (INTERFACE_PATH, REDEEM_INTERFACE_PATH):
             for error in yaml.safe_load(path.read_text(encoding="utf-8"))["errors"]:

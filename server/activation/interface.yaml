@@ -63,7 +63,7 @@ output:
 contract:
   - 激活、校验与 MCP 接口均无需登录
   - MCP 的 GET 请求返回 405
-  - MCP 只有一个只读工具 get_integration_guide：返回按当前请求生成的服务地址、激活、校验与核销完整地址，两种卡密（设备激活、按次数）的区别说明，docs/client/activation、docs/client/fingerprint 与 docs/client/redeem 全文，以及本 interface.yaml 中 POST /api/activate、POST /api/verify 与 server/redeem/interface.yaml 中 POST /api/redeem 的 input、output 和两者的全部 errors；不含其它 input、output 与 contract
+  - MCP 只有一个只读工具 get_integration_guide：返回按当前请求生成的服务地址、激活、校验、核销与核销状态完整地址，两种卡密（设备激活、按次数）的区别说明，docs/client/activation、docs/client/fingerprint 与 docs/client/redeem 全文，以及本 interface.yaml 中 POST /api/activate、POST /api/verify 与 server/redeem/interface.yaml 中 POST /api/redeem、POST /api/redeem/status 的 input、output 和两者的全部 errors；不含其它 input、output 与 contract
   - get_integration_guide 每次调用时读取上述文件，文件修改后下一次调用即返回新内容，无需重启
   - 本 Module 返回的所有错误码都列在 errors 中
   - 激活先按卡密查激活记录：首次激活由卡密批次反查 product，已有激活记录用记录上的 product_code，再检查 product 未禁用
@@ -122,7 +122,7 @@ tests:
   - get_detail 返回换设备记录；toggle_disabled 往返切换；不存在的记录返回 ACTIVATION_NOT_FOUND
   - count_in_use_by_product 只统计未禁用且未到期的激活记录；delete_by_product 删除该 product 的激活记录与换设备记录，不影响其它 product
   - MCP initialize、tools/list 正常；get_integration_guide 返回的地址与请求域名一致，代理声明 https 时为 https
-  - get_integration_guide 包含两种卡密的区别、激活、校验与核销接口及两者全部错误码，不含 activation.services、redeem.services 接口与 product_code
+  - get_integration_guide 包含两种卡密的区别、激活、校验、核销与核销状态接口及两者全部错误码，不含 activation.services、redeem.services 接口与 product_code
   - 修改接入规范、核销规范与两份 interface.yaml 后不重启，get_integration_guide 下一次调用即返回新内容
   - 本 Module 返回的错误码都列在 errors 中
   - MCP 未知方法返回 JSON-RPC 错误；通知返回 202；GET 返回 405

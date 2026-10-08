@@ -11,6 +11,8 @@ from keys.errors import ServiceError
 
 from .models import Redemption
 
+MAX_REDEEM_COUNT = 1000
+
 
 @dataclass(frozen=True)
 class RedemptionInfo:
@@ -44,6 +46,16 @@ class CodeUsage:
         return "使用中" if self.remaining > 0 else "已用完"
 
 
+@dataclass(frozen=True)
+class CodeStatus:
+    uses: int
+    used: int
+
+    @property
+    def remaining(self):
+        return self.uses - self.used
+
+
 def _usages(redemptions):
     rows = (
         redemptions.order_by()
@@ -67,7 +79,15 @@ def _info(redemption):
     )
 
 
-def redeem(code, ip=None):
+def _parse_count(count):
+    if count is None:
+        return 1
+    if isinstance(count, bool) or not isinstance(count, int) or count < 1 or count > MAX_REDEEM_COUNT:
+        raise ServiceError("REQUEST_INVALID", f"count 须为 1 至 {MAX_REDEEM_COUNT} 的整数")
+    return count
+
+
+def _checked_count_batch(code):
     code = codes.normalize(code)
     batch = keys_services.check_code(code)
     product = keys_services.get_product(batch.product_id)
@@ -75,23 +95,42 @@ def redeem(code, ip=None):
         raise ServiceError("PRODUCT_DISABLED", "软件已禁用")
     if product.kind != "count":
         raise ServiceError("CODE_TYPE_MISMATCH", "设备激活卡密不能核销")
+    return code, batch, product
+
+
+def status(code):
+    code, batch, _product = _checked_count_batch(code)
+    used = Redemption.objects.filter(code=code).count()
+    return CodeStatus(uses=batch.uses, used=used)
+
+
+def redeem(code, *, count=None, ip=None):
+    count = _parse_count(count)
+    code, batch, product = _checked_count_batch(code)
     while True:
         used = Redemption.objects.filter(code=code).count()
-        if used >= batch.uses:
+        remaining = batch.uses - used
+        if remaining <= 0:
             raise ServiceError("CODE_USED", "卡密次数已用完")
+        over = remaining < count
         try:
             with transaction.atomic():
-                redemption = Redemption.objects.create(
-                    code=code,
-                    product_code=product.code,
-                    seq=used + 1,
-                    uses=batch.uses,
-                    redeemed_at=timezone.now(),
-                    ip=ip,
-                )
+                now = timezone.now()
+                last = None
+                for i in range(count):
+                    last = Redemption.objects.create(
+                        code=code,
+                        product_code=product.code,
+                        seq=used + 1 + i,
+                        uses=batch.uses,
+                        redeemed_at=now,
+                        ip=ip,
+                    )
         except IntegrityError:
             continue
-        return _info(redemption)
+        if over:
+            raise ServiceError("CODE_USED", "扣减超过剩余次数，卡密已作废")
+        return _info(last)
 
 
 def count_by_product():

@@ -13,7 +13,7 @@ TOOL = {
     "name": TOOL_NAME,
     "description": (
         "获取 Spark Auth 卡密服务的接入说明：服务地址、设备激活卡密与按次数卡密的区别、"
-        "激活/校验/核销接口的请求响应与错误码、设备指纹采集规范。编写接入卡密的代码前调用。"
+        "激活/校验/核销/核销状态接口的请求响应与错误码、设备指纹采集规范。编写接入卡密的代码前调用。"
     ),
     "inputSchema": {"type": "object", "properties": {}},
 }
@@ -48,7 +48,8 @@ def integration_guide(request):
     parts = [
         "# Spark Auth 卡密接入说明",
         f"服务地址：{url}\n\n"
-        f"- 激活：POST {url}/api/activate\n- 校验：POST {url}/api/verify\n- 核销：POST {url}/api/redeem",
+        f"- 激活：POST {url}/api/activate\n- 校验：POST {url}/api/verify\n"
+        f"- 核销：POST {url}/api/redeem\n- 核销状态：POST {url}/api/redeem/status",
     ]
     root = settings.BASE_DIR.parent
     for title, relative in DOCS:

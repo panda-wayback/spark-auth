@@ -16,20 +16,45 @@ def _error(exc):
     )
 
 
+def _parse_body(request):
+    try:
+        data = json.loads(request.body or b"{}")
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        raise ServiceError("REQUEST_INVALID", "请求体必须是 JSON")
+    if not isinstance(data, dict):
+        raise ServiceError("REQUEST_INVALID", "请求体必须是 JSON 对象")
+    return data
+
+
+def _require_code(data):
+    code = data.get("code")
+    if not isinstance(code, str) or not code.strip():
+        raise ServiceError("REQUEST_INVALID", "缺少参数 code")
+    return code.strip()
+
+
+@csrf_exempt
+@require_POST
+def redeem_status(request):
+    try:
+        data = _parse_body(request)
+        code = _require_code(data)
+        info = services.status(code)
+    except ServiceError as exc:
+        return _error(exc)
+    return JsonResponse({"ok": True, "uses": info.uses, "used": info.used, "remaining": info.remaining})
+
+
 @csrf_exempt
 @require_POST
 def redeem(request):
     try:
-        try:
-            data = json.loads(request.body or b"{}")
-        except (json.JSONDecodeError, UnicodeDecodeError):
-            raise ServiceError("REQUEST_INVALID", "请求体必须是 JSON")
-        if not isinstance(data, dict):
-            raise ServiceError("REQUEST_INVALID", "请求体必须是 JSON 对象")
-        code = data.get("code")
-        if not isinstance(code, str) or not code.strip():
-            raise ServiceError("REQUEST_INVALID", "缺少参数 code")
-        redemption = services.redeem(code.strip(), request.META.get("REMOTE_ADDR"))
+        data = _parse_body(request)
+        code = _require_code(data)
+        if "count" in data:
+            redemption = services.redeem(code, count=data["count"], ip=request.META.get("REMOTE_ADDR"))
+        else:
+            redemption = services.redeem(code, ip=request.META.get("REMOTE_ADDR"))
     except ServiceError as exc:
         return _error(exc)
     return JsonResponse(

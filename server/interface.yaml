@@ -6,7 +6,7 @@ modules:
   - path: activation
     function: 激活记录与换设备记录的数据、激活判定、计时与换设备扣减、token 签发与校验、客户端接口、后台查询与禁用、只读 MCP 接入说明
   - path: redeem
-    function: 按次数卡密的核销记录数据、核销接口、后台按卡密汇总与明细查询
+    function: 按次数卡密的核销记录数据、状态查询与核销接口、后台按卡密汇总与明细查询
   - path: console
     function: 极简管理后台：登录、软件列表、软件的卡密页（含卡密测试窗口）、卡密批次列表、激活详情、核销详情、MCP 接入
 input: []
