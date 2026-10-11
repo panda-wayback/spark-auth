@@ -46,7 +46,7 @@ class ProductCreateForm(ProductEditForm):
     kind = forms.ChoiceField(
         label="类型",
         choices=[("device", "设备激活"), ("count", "按次数")],
-        help_text="设备激活：卡密在接入方软件中激活并绑定设备；按次数：卡密由服务后端核销，每次扣 1 次，签发时设定次数。创建后不能修改",
+        help_text="设备激活：卡密在接入方软件中激活并绑定设备；按次数：卡密由服务后端核销，签发时设定次数与有效天数。创建后不能修改",
     )
     disabled = None
     field_order = ["code", "name", "kind", "allow_transfer", "transfer_penalty_hours"]

@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from django.db import IntegrityError, transaction
 from django.db.models import Count, F, Max, Min
@@ -34,6 +34,7 @@ class CodeUsage:
     product_code: str
     used: int
     uses: int
+    duration_days: int | None
     first_redeemed_at: datetime
     last_redeemed_at: datetime
 
@@ -42,29 +43,84 @@ class CodeUsage:
         return self.uses - self.used
 
     @property
+    def expires_at(self):
+        return _expires_at(self.first_redeemed_at, self.duration_days)
+
+    @property
+    def expired(self):
+        return _is_expired(self.expires_at)
+
+    @property
     def status(self):
-        return "使用中" if self.remaining > 0 else "已用完"
+        if self.remaining <= 0:
+            return "已用完"
+        if self.expired:
+            return "已到期"
+        return "使用中"
 
 
 @dataclass(frozen=True)
 class CodeStatus:
     uses: int
     used: int
+    expires_at: datetime | None
 
     @property
     def remaining(self):
         return self.uses - self.used
+
+    @property
+    def expired(self):
+        return _is_expired(self.expires_at)
+
+
+@dataclass(frozen=True)
+class RedeemResult:
+    remaining: int
+    redeemed_at: datetime
+    expires_at: datetime | None
+    code: str
+    product_code: str
+    seq: int
+    uses: int
+    ip: str | None
+
+
+def _expires_at(first_redeemed_at, duration_days):
+    if first_redeemed_at is None or duration_days is None:
+        return None
+    return first_redeemed_at + timedelta(days=duration_days)
+
+
+def _is_expired(expires_at, now=None):
+    if expires_at is None:
+        return False
+    return (now or timezone.now()) > expires_at
 
 
 def _usages(redemptions):
     rows = (
         redemptions.order_by()
         .values("code", "product_code", "uses")
-        .annotate(used=Count("id"), first=Min("redeemed_at"), last=Max("redeemed_at"))
+        .annotate(
+            used=Count("id"),
+            first=Min("redeemed_at"),
+            last=Max("redeemed_at"),
+            duration_days=Max("duration_days"),
+        )
         .order_by("-last", "code")
     )
     return [
-        CodeUsage(r["code"], r["product_code"], r["used"], r["uses"], r["first"], r["last"]) for r in rows
+        CodeUsage(
+            r["code"],
+            r["product_code"],
+            r["used"],
+            r["uses"],
+            r["duration_days"],
+            r["first"],
+            r["last"],
+        )
+        for r in rows
     ]
 
 
@@ -100,19 +156,30 @@ def _checked_count_batch(code):
 
 def status(code):
     code, batch, _product = _checked_count_batch(code)
+    first = Redemption.objects.filter(code=code).order_by("seq", "id").first()
     used = Redemption.objects.filter(code=code).count()
-    return CodeStatus(uses=batch.uses, used=used)
+    if first is None:
+        expires_at = None
+    else:
+        expires_at = _expires_at(first.redeemed_at, first.duration_days)
+    return CodeStatus(uses=batch.uses, used=used, expires_at=expires_at)
 
 
 def redeem(code, *, count=None, ip=None):
     count = _parse_count(count)
     code, batch, product = _checked_count_batch(code)
     while True:
+        first = Redemption.objects.filter(code=code).order_by("seq", "id").first()
         used = Redemption.objects.filter(code=code).count()
+        if first is not None:
+            expires = _expires_at(first.redeemed_at, first.duration_days)
+            if _is_expired(expires):
+                raise ServiceError("CODE_EXPIRED", "卡密已到期")
         remaining = batch.uses - used
         if remaining <= 0:
             raise ServiceError("CODE_USED", "卡密次数已用完")
         over = remaining < count
+        duration_days = first.duration_days if first is not None else batch.duration_days
         try:
             with transaction.atomic():
                 now = timezone.now()
@@ -123,6 +190,7 @@ def redeem(code, *, count=None, ip=None):
                         product_code=product.code,
                         seq=used + 1 + i,
                         uses=batch.uses,
+                        duration_days=duration_days,
                         redeemed_at=now,
                         ip=ip,
                     )
@@ -130,7 +198,17 @@ def redeem(code, *, count=None, ip=None):
             continue
         if over:
             raise ServiceError("CODE_USED", "扣减超过剩余次数，卡密已作废")
-        return _info(last)
+        first_at = first.redeemed_at if first is not None else last.redeemed_at
+        return RedeemResult(
+            remaining=batch.uses - (used + count),
+            redeemed_at=last.redeemed_at,
+            expires_at=_expires_at(first_at, duration_days),
+            code=last.code,
+            product_code=last.product_code,
+            seq=last.seq,
+            uses=last.uses,
+            ip=last.ip,
+        )
 
 
 def count_by_product():
@@ -142,11 +220,14 @@ def count_in_use_by_product():
     rows = (
         Redemption.objects.order_by()
         .values("product_code", "code", "uses")
-        .annotate(used=Count("id"))
+        .annotate(used=Count("id"), first=Min("redeemed_at"), duration_days=Max("duration_days"))
         .filter(used__lt=F("uses"))
     )
     counts = {}
+    now = timezone.now()
     for row in rows:
+        if _is_expired(_expires_at(row["first"], row["duration_days"]), now):
+            continue
         counts[row["product_code"]] = counts.get(row["product_code"], 0) + 1
     return counts
 

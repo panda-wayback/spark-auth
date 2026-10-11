@@ -79,15 +79,18 @@ class IssueTests(KeysTestCase):
     def test_count_product_uses(self):
         product = services.create_product("service-b", "B", kind="count")
         batch, issued = services.issue_codes(product.id, None, 2, uses=1)
-        self.assertEqual((batch.duration_days, batch.uses), (None, 1))
+        self.assertEqual((batch.duration_days, batch.uses), (30, 1))
         many, _ = services.issue_codes(product.id, None, 1, uses=10000)
         self.assertEqual(services.check_code(issued[0]).uses, 1)
         self.assertEqual(many.uses, 10000)
+        self.assertEqual(many.duration_days, 30)
+        week, _ = services.issue_codes(product.id, 7, 1, uses=5)
+        self.assertEqual(week.duration_days, 7)
         rows = list(csv.reader(io.StringIO(services.export_codes_csv(product.id, batch.batch_id))))
-        self.assertEqual([(r[1], r[2]) for r in rows[1:]], [("", "1"), ("", "1")])
-        for duration_days, uses in ((None, None), (None, 0), (None, 10001), (30, 5)):
+        self.assertEqual([(r[1], r[2]) for r in rows[1:]], [("30", "1"), ("30", "1")])
+        for duration_days, uses in ((None, None), (None, 0), (None, 10001), (0, 5), (36501, 5)):
             self.assertCode("REQUEST_INVALID", services.issue_codes, product.id, duration_days, 1, uses)
-        self.assertEqual(len(services.list_batches(product.id)), 2)
+        self.assertEqual(len(services.list_batches(product.id)), 3)
 
     def test_device_product_has_no_uses(self):
         self.assertCode("REQUEST_INVALID", services.issue_codes, self.product.id, None, 1)

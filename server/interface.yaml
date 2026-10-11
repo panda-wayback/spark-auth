@@ -30,3 +30,4 @@ tests:
   - 未设置 SPARK_AUTH_SECRET_KEY 时生成 secret_key 文件且再次加载沿用同一密钥；设置环境变量时以环境变量为准、不生成文件
   - 组合测试：经代理（X-Forwarded-For 最后一项为客户端 IP）激活与核销，console 的激活详情与核销详情页显示该 IP；X-Forwarded-For 不是合法 IP 时记录连接地址
   - 组合测试：在 console 创建按次数软件并签发卡密后，redeem 按次数核销成功且 console 卡密页显示核销记录，次数用完后核销被拒绝，activation 激活该卡密被拒绝
+  - 组合测试：按次数卡密首次核销后返回到期时间，模拟到期后核销被拒绝且 console 显示已到期

@@ -6,6 +6,7 @@ class Redemption(models.Model):
     product_code = models.CharField("软件标识", max_length=64, db_index=True)
     seq = models.PositiveIntegerField("第几次")
     uses = models.PositiveIntegerField("可用次数")
+    duration_days = models.PositiveIntegerField("有效时长（天）", null=True, blank=True)
     redeemed_at = models.DateTimeField("核销时间")
     ip = models.GenericIPAddressField("核销 IP", null=True, blank=True)
 

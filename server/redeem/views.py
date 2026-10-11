@@ -42,7 +42,16 @@ def redeem_status(request):
         info = services.status(code)
     except ServiceError as exc:
         return _error(exc)
-    return JsonResponse({"ok": True, "uses": info.uses, "used": info.used, "remaining": info.remaining})
+    return JsonResponse(
+        {
+            "ok": True,
+            "uses": info.uses,
+            "used": info.used,
+            "remaining": info.remaining,
+            "expires_at": info.expires_at.isoformat() if info.expires_at else None,
+            "expired": info.expired,
+        }
+    )
 
 
 @csrf_exempt
@@ -58,5 +67,10 @@ def redeem(request):
     except ServiceError as exc:
         return _error(exc)
     return JsonResponse(
-        {"ok": True, "remaining": redemption.remaining, "redeemed_at": redemption.redeemed_at.isoformat()}
+        {
+            "ok": True,
+            "remaining": redemption.remaining,
+            "redeemed_at": redemption.redeemed_at.isoformat(),
+            "expires_at": redemption.expires_at.isoformat() if redemption.expires_at else None,
+        }
     )

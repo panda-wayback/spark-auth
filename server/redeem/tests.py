@@ -1,10 +1,14 @@
 import json
+from datetime import timedelta
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
+from django.utils import timezone
 
+from keys import codes as key_codes
 from keys import services as keys_services
 from keys.errors import ServiceError
+from keys.models import Batch
 
 from . import services
 from .models import Redemption
@@ -27,6 +31,7 @@ class RedeemServiceTests(RedeemTestCase):
         self.assertEqual(
             (info.code, info.product_code, info.seq, info.remaining), (self.codes[0].replace("-", ""), "service-a", 1, 0)
         )
+        self.assertIsNotNone(info.expires_at)
         self.assertEqual(Redemption.objects.count(), 1)
 
         self.assertCode("CODE_USED", services.redeem, self.codes[0])
@@ -59,14 +64,54 @@ class RedeemServiceTests(RedeemTestCase):
     def test_status(self):
         _, (code,) = keys_services.issue_codes(self.product.id, None, 1, uses=4)
         status = services.status(code)
-        self.assertEqual((status.uses, status.used, status.remaining), (4, 0, 4))
-        services.redeem(code, count=2)
+        self.assertEqual((status.uses, status.used, status.remaining, status.expires_at, status.expired), (4, 0, 4, None, False))
+        result = services.redeem(code, count=2)
         status = services.status(" " + code.lower() + " ")
         self.assertEqual((status.uses, status.used, status.remaining), (4, 2, 2))
+        self.assertEqual(status.expires_at, result.expires_at)
+        self.assertFalse(status.expired)
 
         device = keys_services.create_product("software-b", "B")
         _, (device_code,) = keys_services.issue_codes(device.id, 30, 1)
         self.assertCode("CODE_TYPE_MISMATCH", services.status, device_code)
+
+    def test_expiry_from_first_redeem(self):
+        _, (code,) = keys_services.issue_codes(self.product.id, 1, 1, uses=5)
+        before = timezone.now()
+        result = services.redeem(code)
+        self.assertGreaterEqual(result.expires_at, before + timedelta(days=1))
+        self.assertLessEqual(result.expires_at, timezone.now() + timedelta(days=1))
+        self.assertEqual(result.remaining, 4)
+
+        Redemption.objects.filter(code=code.replace("-", "")).update(
+            redeemed_at=timezone.now() - timedelta(days=2)
+        )
+        self.assertCode("CODE_EXPIRED", services.redeem, code)
+        self.assertEqual(Redemption.objects.filter(code=code.replace("-", "")).count(), 1)
+        status = services.status(code)
+        self.assertTrue(status.expired)
+        self.assertEqual(status.remaining, 4)
+        usage, _ = services.get_code_detail(code)
+        self.assertEqual(usage.status, "已到期")
+
+    def test_legacy_batch_without_duration_never_expires(self):
+        batch = Batch.objects.create(
+            batch_id=key_codes.new_batch_id(),
+            secret=key_codes.new_batch_secret(),
+            product_id=self.product.id,
+            duration_days=None,
+            uses=2,
+            count=1,
+            created_at=timezone.now().replace(microsecond=0),
+        )
+        code = key_codes.sign(batch.batch_id, batch.secret, 1)
+        result = services.redeem(code)
+        self.assertIsNone(result.expires_at)
+        Redemption.objects.filter(code=code.replace("-", "")).update(
+            redeemed_at=timezone.now() - timedelta(days=400)
+        )
+        self.assertEqual(services.redeem(code).remaining, 0)
+        self.assertFalse(services.status(code).expired)
 
     def test_count_invalid(self):
         for count in (0, -1, 1001, True, 1.5, "1"):
@@ -114,7 +159,14 @@ class RedeemServiceTests(RedeemTestCase):
         services.redeem(other_code)
         self.assertEqual(services.count_in_use_by_product(), {"service-a": 1})
 
-        self.assertEqual(services.delete_by_product("service-a"), 7)
+        _, (expired_code,) = keys_services.issue_codes(self.product.id, 1, 1, uses=3)
+        services.redeem(expired_code)
+        Redemption.objects.filter(code=expired_code.replace("-", "")).update(
+            redeemed_at=timezone.now() - timedelta(days=2)
+        )
+        self.assertEqual(services.count_in_use_by_product(), {"service-a": 1})
+
+        self.assertEqual(services.delete_by_product("service-a"), 8)
         self.assertEqual(services.search("service-a"), [])
         self.assertEqual(len(services.search("service-b")), 1)
 
@@ -133,6 +185,7 @@ class RedeemServiceTests(RedeemTestCase):
             [(u.code, u.used, u.uses, u.status) for u in usages],
             [(multi.replace("-", ""), 2, 5, "使用中"), (self.codes[0].replace("-", ""), 1, 1, "已用完")],
         )
+        self.assertIsNotNone(usages[0].expires_at)
         found = services.search("service-a", multi.lower())
         self.assertEqual([u.code for u in found], [multi.replace("-", "")])
 
@@ -152,6 +205,7 @@ class RedeemApiTests(RedeemTestCase):
         self.assertTrue(body["ok"])
         self.assertEqual(body["remaining"], 0)
         self.assertIn("redeemed_at", body)
+        self.assertIsNotNone(body["expires_at"])
         _, (record,) = services.get_code_detail(self.codes[0])
         self.assertEqual(record.ip, "127.0.0.1")
 
@@ -163,7 +217,9 @@ class RedeemApiTests(RedeemTestCase):
         _, (code,) = keys_services.issue_codes(self.product.id, None, 1, uses=5)
         resp = self.post("/api/redeem", {"code": code, "count": 2})
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.json()["remaining"], 3)
+        body = resp.json()
+        self.assertEqual(body["remaining"], 3)
+        self.assertIsNotNone(body["expires_at"])
 
         resp = self.post("/api/redeem", {"code": code, "count": 4})
         self.assertEqual(resp.status_code, 403)
@@ -172,13 +228,35 @@ class RedeemApiTests(RedeemTestCase):
 
         resp = self.post("/api/redeem/status", {"code": code})
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.json(), {"ok": True, "uses": 5, "used": 6, "remaining": -1})
+        body = resp.json()
+        self.assertEqual(body["ok"], True)
+        self.assertEqual((body["uses"], body["used"], body["remaining"]), (5, 6, -1))
+        self.assertIsNotNone(body["expires_at"])
+        self.assertFalse(body["expired"])
 
     def test_status_api(self):
         _, (code,) = keys_services.issue_codes(self.product.id, None, 1, uses=3)
         resp = self.post("/api/redeem/status", {"code": code})
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.json(), {"ok": True, "uses": 3, "used": 0, "remaining": 3})
+        self.assertEqual(
+            resp.json(),
+            {"ok": True, "uses": 3, "used": 0, "remaining": 3, "expires_at": None, "expired": False},
+        )
+
+    def test_expired_api(self):
+        _, (code,) = keys_services.issue_codes(self.product.id, 1, 1, uses=3)
+        self.post("/api/redeem", {"code": code})
+        Redemption.objects.filter(code=code.replace("-", "")).update(
+            redeemed_at=timezone.now() - timedelta(days=2)
+        )
+        resp = self.post("/api/redeem", {"code": code})
+        self.assertEqual(resp.status_code, 403)
+        self.assertEqual(resp.json()["error"]["code"], "CODE_EXPIRED")
+        resp = self.post("/api/redeem/status", {"code": code})
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertTrue(body["expired"])
+        self.assertEqual(body["remaining"], 2)
 
     def test_request_invalid(self):
         for payload in ({}, {"code": ""}, {"code": 1}, ["x"], {"code": self.codes[0], "count": 0}):

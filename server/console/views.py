@@ -169,7 +169,7 @@ def key_issue(request, pk):
         messages.error(request, _first_error(form))
         return redirect("console:keys", pk=pk)
     if product.kind == "count":
-        duration_days, uses = None, form.cleaned_data["uses"]
+        duration_days, uses = form.cleaned_data["duration_days"], form.cleaned_data["uses"]
     else:
         duration_days, uses = form.cleaned_data["duration_days"], None
     try:

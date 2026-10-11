@@ -21,7 +21,7 @@ input:
     type: (product_id)；int
     desc: 删除 product 及其全部卡密批次；是否在使用中、使用记录的清除由调用方负责
   - name: keys.services.issue_codes
-    type: (product_id, duration_days, count=1, uses=None)；设备激活 product：duration_days 为 1 至 36500 的整数（天），uses 必须为 None；按次数 product：duration_days 必须为 None，uses 为 1 至 10000 的整数（每个卡密可用次数）；count 为 1 至 1000 的整数
+    type: (product_id, duration_days, count=1, uses=None)；设备激活 product：duration_days 为 1 至 36500 的整数（天），uses 必须为 None；按次数 product：uses 为 1 至 10000 的整数（每个卡密可用次数），duration_days 为 1 至 36500 的整数（天），省略或为 None 时按 30；count 为 1 至 1000 的整数
     desc: 批量签发卡密，同时生成新的卡密批次
   - name: keys.services.list_batches
     type: (product_id)
@@ -50,7 +50,7 @@ output:
     desc: 被删除的 product
   - name: keys.services.issue_codes
     type: (BatchInfo, list[str])
-    desc: 新建的批次与本批卡密；BatchInfo 字段 batch_id、product_id、product_code、duration_days（按次数 product 的批次为 None）、uses（设备激活 product 的批次为 None）、count、disabled、created_at
+    desc: 新建的批次与本批卡密；BatchInfo 字段 batch_id、product_id、product_code、duration_days（按次数新签发批次为有效天数，历史未设时长的可为 None）、uses（设备激活 product 的批次为 None）、count、disabled、created_at
   - name: keys.services.list_batches
     type: list[BatchInfo]
     desc: 卡密批次列表
@@ -59,7 +59,7 @@ output:
     desc: 禁用后的批次
   - name: keys.services.export_codes_csv
     type: str（CSV 文本）
-    desc: 表头 卡密、有效时长（天）、可用次数、签发时间；按次数 product 的有效时长列为空，设备激活 product 的可用次数列为空；签发时间为本地时间 YYYY-MM-DD HH:MM:SS
+    desc: 表头 卡密、有效时长（天）、可用次数、签发时间；设备激活 product 的可用次数列为空；按次数 product 有有效时长时填天数、历史未设时长的为空，可用次数列为 uses；签发时间为本地时间 YYYY-MM-DD HH:MM:SS
   - name: keys.services.check_code
     type: BatchInfo
     desc: 卡密所属批次；有效时长取 duration_days，可用次数取 uses
@@ -101,7 +101,7 @@ tests:
   - 新建 product 后可按 id 与标识取回，类型默认为 device；标识重复返回 PRODUCT_EXISTS；标识、名称或类型格式错误返回 REQUEST_INVALID
   - 修改 product 后策略与禁用状态立即生效，标识与类型不变
   - 删除 product 后按 id 取回返回 PRODUCT_NOT_FOUND，其卡密 check_code 返回 CODE_INVALID，同一标识可再次新建；删除不存在的 product 返回 PRODUCT_NOT_FOUND
-  - 按次数 product 以 duration_days=None、uses=1 与 uses=10000 签发成功，批次 uses 与签发值一致、duration_days 为 None，导出的有效时长列为空、可用次数列为 uses；uses 为 None、0、10001 或传入有效时长返回 REQUEST_INVALID
+  - 按次数 product 以 uses=1 与 uses=10000 签发成功（duration_days 省略时批次为 30），显式 duration_days=7 时批次为 7，导出的有效时长列为天数、可用次数列为 uses；uses 为 None、0、10001 或 duration_days 为 0、10001 返回 REQUEST_INVALID
   - 设备激活 product 的 duration_days 为 None 或传入 uses 返回 REQUEST_INVALID；其批次 uses 为 None、导出的可用次数列为空
   - 批量签发 1 与 1000 成功且同批卡密互不相同、长度为 28 个字符，0 与 1001 返回 BATCH_COUNT_INVALID
   - 签发的卡密经 check_code 返回所属批次与有效时长；带空白、连字符、小写的输入同样通过

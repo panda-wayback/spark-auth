@@ -5,7 +5,8 @@
 <p class="sub">
   <a href="{% url 'console:keys' product.id %}">← 返回 {{ product.name }}</a> ·
   <span class="tag {{ usage.status }}">{{ usage.status }}</span> ·
-  已用 {{ usage.used }} / 可用 {{ usage.uses }} 次 · 剩余 {{ usage.remaining }} 次
+  已用 {{ usage.used }} / 可用 {{ usage.uses }} 次 · 剩余 {{ usage.remaining }} 次 ·
+  到期时间 {% if usage.expires_at %}{{ usage.expires_at|date:"Y-m-d H:i" }}{% else %}-{% endif %}
 </p>
 
 <div class="card">

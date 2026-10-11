@@ -124,17 +124,43 @@ class EndToEndTests(TestCase):
 
     def test_count_code_redeemed_until_used_up(self):
         product = self.create_product("download-service", kind="count")
-        resp = self.console.post(reverse("console:key_issue", args=[product.id]), {"count": 1, "uses": 2})
+        resp = self.console.post(
+            reverse("console:key_issue", args=[product.id]), {"count": 1, "uses": 2, "duration_days": 30}
+        )
         self.assertEqual(resp.status_code, 200)
         code = self.export(product)[0]
         for remaining in (1, 0):
             resp = self.call("redeem", code=code)
             self.assertEqual(resp.status_code, 200)
             self.assertEqual(resp.json()["remaining"], remaining)
+            self.assertIsNotNone(resp.json()["expires_at"])
         self.assertEqual(self.call("redeem", code=code).json()["error"]["code"], "CODE_USED")
         self.assertEqual(self.activate(code, DEVICE_A).json()["error"]["code"], "CODE_TYPE_MISMATCH")
         resp = self.console.get(reverse("console:keys", args=[product.id]))
         self.assertContains(resp, code.replace("-", ""))
+
+    def test_count_code_expires_after_first_redeem(self):
+        from redeem.models import Redemption
+
+        product = self.create_product("download-service", kind="count")
+        resp = self.console.post(
+            reverse("console:key_issue", args=[product.id]), {"count": 1, "uses": 5, "duration_days": 30}
+        )
+        self.assertEqual(resp.status_code, 200)
+        code = self.export(product)[0]
+        first = self.call("redeem", code=code)
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(first.json()["remaining"], 4)
+        self.assertIsNotNone(first.json()["expires_at"])
+        Redemption.objects.filter(code=code.replace("-", "")).update(
+            redeemed_at=timezone.now() - timedelta(days=31)
+        )
+        self.assertEqual(self.call("redeem", code=code).json()["error"]["code"], "CODE_EXPIRED")
+        status = self.call("redeem/status", code=code).json()
+        self.assertTrue(status["expired"])
+        self.assertEqual(status["remaining"], 4)
+        resp = self.console.get(reverse("console:keys", args=[product.id]))
+        self.assertContains(resp, "已到期")
 
     def test_ip_from_proxy_shown_in_console(self):
         device_code = self.issue(self.create_product("software-a", allow_transfer=True))[0]
@@ -148,7 +174,9 @@ class EndToEndTests(TestCase):
         self.assertContains(self.console.get(reverse("console:activation_detail", args=[activation.id])), "203.0.113.7")
 
         product = self.create_product("download-service", kind="count")
-        self.console.post(reverse("console:key_issue", args=[product.id]), {"count": 1, "uses": 2})
+        self.console.post(
+            reverse("console:key_issue", args=[product.id]), {"count": 1, "uses": 2, "duration_days": 30}
+        )
         code = self.export(product)[0]
         for forwarded in ("198.51.100.5", "not-an-ip"):
             self.app.post(

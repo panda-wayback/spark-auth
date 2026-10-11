@@ -260,12 +260,13 @@ class CountProductTests(ConsoleTestCase):
 
     def test_issue_with_uses_and_list_redemptions(self):
         self.assertEqual(self.counted.kind, "count")
-        resp = self.client.post(self.url("key_issue", self.counted.id), {"count": 2, "uses": 3})
+        resp = self.client.post(self.url("key_issue", self.counted.id), {"count": 2, "uses": 3, "duration_days": 30})
         self.assertEqual(resp.status_code, 200)
         (batch,) = keys_services.list_batches(self.counted.id)
-        self.assertEqual((batch.count, batch.duration_days, batch.uses), (2, None, 3))
+        self.assertEqual((batch.count, batch.duration_days, batch.uses), (2, 30, 3))
         resp = self.client.get(self.url("batches", self.counted.id))
         self.assertContains(resp, "3 次")
+        self.assertContains(resp, "30 天")
 
         codes = [row.split(",")[0] for row in keys_services.export_codes_csv(self.counted.id).splitlines()[1:]]
         redeem_services.redeem(codes[0])
@@ -276,6 +277,7 @@ class CountProductTests(ConsoleTestCase):
         self.assertContains(resp, ">2 / 3<")
         self.assertContains(resp, ">1 / 3<")
         self.assertContains(resp, "共 2 个")
+        self.assertContains(resp, "到期时间")
         self.assertContains(resp, self.url("redemption_detail", codes[0].replace("-", "")))
         resp = self.client.get(self.url("keys", self.counted.id), {"q": codes[1]})
         self.assertContains(resp, codes[1].replace("-", ""))

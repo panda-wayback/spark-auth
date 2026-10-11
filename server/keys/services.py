@@ -170,8 +170,10 @@ def issue_codes(product_id, duration_days, count=1, uses=None):
     if not isinstance(count, int) or not 1 <= count <= BATCH_MAX:
         raise ServiceError("BATCH_COUNT_INVALID", f"生成数量必须在 1 到 {BATCH_MAX} 之间")
     if product.kind == "count":
-        if duration_days is not None:
-            raise ServiceError("REQUEST_INVALID", "按次数软件的卡密没有有效时长")
+        if duration_days is None:
+            duration_days = 30
+        if not isinstance(duration_days, int) or not 1 <= duration_days <= DURATION_MAX:
+            raise ServiceError("REQUEST_INVALID", f"有效时长必须是 1 到 {DURATION_MAX} 之间的整数（天）")
         if not isinstance(uses, int) or not 1 <= uses <= USES_MAX:
             raise ServiceError("REQUEST_INVALID", f"可用次数必须是 1 到 {USES_MAX} 之间的整数")
     else:

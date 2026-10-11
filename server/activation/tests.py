@@ -315,11 +315,14 @@ class McpTests(TestCase):
         text = self.guide()
         self.assertIn("设备激活卡密", text)
         self.assertIn("按次数卡密", text)
+        self.assertIn("首次成功核销", text)
+        self.assertIn("expires_at", text)
         for name in ("POST /api/activate", "POST /api/verify", "POST /api/redeem", "POST /api/redeem/status"):
             self.assertIn(f"name: {name}", text)
         for path in (INTERFACE_PATH, REDEEM_INTERFACE_PATH):
             for error in yaml.safe_load(path.read_text(encoding="utf-8"))["errors"]:
                 self.assertIn(error["code"], text)
+        self.assertIn("CODE_EXPIRED", text)
         for internal in ("activation.services", "redeem.services", "product_code", "delete_by_product", "contract:"):
             self.assertNotIn(internal, text)
 

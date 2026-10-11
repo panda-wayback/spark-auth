@@ -14,9 +14,9 @@
   <form method="post" action="{% url 'console:key_issue' product.id %}">
     {% csrf_token %}
     {% if product.kind == "count" %}
-    数量 {{ issue_form.count }} 可用次数 {{ issue_form.uses }}
+    数量 {{ issue_form.count }} 可用次数 {{ issue_form.uses }} 有效天数 {{ issue_form.duration_days }}
     <button class="primary" type="submit">签发</button>
-    <span class="helptext">每核销一次扣 1 次，用完作废；可用次数填 1 即一次性卡密</span>
+    <span class="helptext">每核销一次扣 1 次，用完或到期作废；可用次数填 1 即一次性卡密；有效天数从首次成功核销起算，默认 30</span>
     {% else %}
     数量 {{ issue_form.count }} 有效天数 {{ issue_form.duration_days }}
     <button class="primary" type="submit">签发</button>
@@ -128,7 +128,7 @@
 <div class="scroll">
 <table>
   {% if product.kind == "count" %}
-  <tr><th>卡密</th><th>状态</th><th>已用 / 可用</th><th>首次核销</th><th>最近核销</th></tr>
+  <tr><th>卡密</th><th>状态</th><th>已用 / 可用</th><th>首次核销</th><th>最近核销</th><th>到期时间</th></tr>
   {% for usage in page.object_list %}
   <tr>
     <td class="mono nowrap"><a href="{% url 'console:redemption_detail' usage.code %}">{{ usage.code }}</a></td>
@@ -136,6 +136,7 @@
     <td class="nowrap">{{ usage.used }} / {{ usage.uses }}</td>
     <td class="nowrap">{{ usage.first_redeemed_at|date:"Y-m-d H:i:s" }}</td>
     <td class="nowrap">{{ usage.last_redeemed_at|date:"Y-m-d H:i:s" }}</td>
+    <td class="nowrap">{% if usage.expires_at %}{{ usage.expires_at|date:"Y-m-d H:i" }}{% else %}-{% endif %}</td>
   </tr>
   {% endfor %}
   {% else %}
