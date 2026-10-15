@@ -14,13 +14,15 @@
   <form method="post" action="{% url 'console:key_issue' product.id %}">
     {% csrf_token %}
     {% if product.kind == "count" %}
+    批次名称 {{ issue_form.batch_name }}
     数量 {{ issue_form.count }} 可用次数 {{ issue_form.uses }} 有效天数 {{ issue_form.duration_days }}
     <button class="primary" type="submit">签发</button>
-    <span class="helptext">每核销一次扣 1 次，用完或到期作废；可用次数填 1 即一次性卡密；有效天数从首次成功核销起算，默认 30</span>
+    <span class="helptext">批次名称选填，只在批次列表与导出 CSV 中显示；每核销一次扣 1 次，用完或到期作废；可用次数填 1 即一次性卡密；有效天数从首次成功核销起算，默认 30</span>
     {% else %}
+    批次名称 {{ issue_form.batch_name }}
     数量 {{ issue_form.count }} 有效天数 {{ issue_form.duration_days }}
     <button class="primary" type="submit">签发</button>
-    <span class="helptext">有效天数{{ issue_form.duration_days.help_text }}</span>
+    <span class="helptext">批次名称选填，只在批次列表与导出 CSV 中显示；有效天数{{ issue_form.duration_days.help_text }}</span>
     {% endif %}
   </form>
   <strong>导出 CSV</strong>
@@ -28,7 +30,7 @@
     <select name="batch">
       <option value="">全部批次</option>
       {% for batch in batches %}
-      <option value="{{ batch.batch_id }}">{{ batch.created_at|date:"Y-m-d H:i" }} · {{ batch.count }} 个{% if batch.duration_days %} · {{ batch.duration_days }} 天{% endif %}{% if batch.uses %} · {{ batch.uses }} 次{% endif %}</option>
+      <option value="{{ batch.batch_id }}">{% if batch.batch_name %}{{ batch.batch_name }} · {% endif %}{{ batch.created_at|date:"Y-m-d H:i" }} · {{ batch.count }} 个{% if batch.duration_days %} · {{ batch.duration_days }} 天{% endif %}{% if batch.uses %} · {{ batch.uses }} 次{% endif %}</option>
       {% endfor %}
     </select>
     <button type="submit">下载卡密</button>

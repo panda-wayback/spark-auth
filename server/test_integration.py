@@ -51,7 +51,7 @@ class EndToEndTests(TestCase):
 
     def export(self, product, batch=""):
         resp = self.console.get(reverse("console:key_export", args=[product.id]), {"batch": batch} if batch else {})
-        return [row[0] for row in csv.reader(io.StringIO(resp.content.decode("utf-8-sig")))][1:]
+        return [row[1] for row in csv.reader(io.StringIO(resp.content.decode("utf-8-sig")))][1:]
 
     def issue(self, product, count=1, days=30):
         resp = self.console.post(reverse("console:key_issue", args=[product.id]), {"count": count, "duration_days": days})
@@ -79,6 +79,22 @@ class EndToEndTests(TestCase):
         self.assertEqual(len(set(codes)), 20)
         self.assertEqual(activation_services.count_by_product(), {})
         self.assertEqual(self.activate(codes[5], DEVICE_A).status_code, 200)
+
+    def test_named_batch_shown_in_page_and_export(self):
+        product = self.create_product("software-a")
+        resp = self.console.post(
+            reverse("console:key_issue", args=[product.id]),
+            {"count": 3, "duration_days": 30, "batch_name": "双11推广"},
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(keys_services.list_batches(product.id)[0].batch_name, "双11推广")
+        resp = self.console.get(reverse("console:batches", args=[product.id]))
+        self.assertContains(resp, "双11推广")
+        rows = list(
+            csv.reader(io.StringIO(self.console.get(reverse("console:key_export", args=[product.id])).content.decode("utf-8-sig")))
+        )
+        self.assertEqual(rows[0][0], "批次名称")
+        self.assertEqual({r[0] for r in rows[1:]}, {"双11推广"})
 
     def test_transfer_not_allowed(self):
         code = self.issue(self.create_product("software-a", allow_transfer=False))[0]

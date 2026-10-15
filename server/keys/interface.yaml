@@ -21,8 +21,8 @@ input:
     type: (product_id)；int
     desc: 删除 product 及其全部卡密批次；是否在使用中、使用记录的清除由调用方负责
   - name: keys.services.issue_codes
-    type: (product_id, duration_days, count=1, uses=None)；设备激活 product：duration_days 为 1 至 36500 的整数（天），uses 必须为 None；按次数 product：uses 为 1 至 10000 的整数（每个卡密可用次数），duration_days 为 1 至 36500 的整数（天），省略或为 None 时按 30；count 为 1 至 1000 的整数
-    desc: 批量签发卡密，同时生成新的卡密批次
+    type: (product_id, duration_days, count=1, uses=None, batch_name=None)；设备激活 product：duration_days 为 1 至 36500 的整数（天），uses 必须为 None；按次数 product：uses 为 1 至 10000 的整数（每个卡密可用次数），duration_days 为 1 至 36500 的整数（天），省略或为 None 时按 30；count 为 1 至 1000 的整数；batch_name 省略或为 None、空白字符串时表示未命名，否则为去首尾空白后不超过 50 字的名称
+    desc: 批量签发卡密，同时生成新的卡密批次（可给批次命名，便于后台辨认与导出）
   - name: keys.services.list_batches
     type: (product_id)
     desc: 列出 product 的全部卡密批次，新批次在前
@@ -50,7 +50,7 @@ output:
     desc: 被删除的 product
   - name: keys.services.issue_codes
     type: (BatchInfo, list[str])
-    desc: 新建的批次与本批卡密；BatchInfo 字段 batch_id、product_id、product_code、duration_days（按次数新签发批次为有效天数，历史未设时长的可为 None）、uses（设备激活 product 的批次为 None）、count、disabled、created_at
+    desc: 新建的批次与本批卡密；BatchInfo 字段 batch_id、product_id、product_code、duration_days（按次数新签发批次为有效天数，历史未设时长的可为 None）、uses（设备激活 product 的批次为 None）、count、batch_name（未命名为 None）、disabled、created_at
   - name: keys.services.list_batches
     type: list[BatchInfo]
     desc: 卡密批次列表
@@ -59,7 +59,7 @@ output:
     desc: 禁用后的批次
   - name: keys.services.export_codes_csv
     type: str（CSV 文本）
-    desc: 表头 卡密、有效时长（天）、可用次数、签发时间；设备激活 product 的可用次数列为空；按次数 product 有有效时长时填天数、历史未设时长的为空，可用次数列为 uses；签发时间为本地时间 YYYY-MM-DD HH:MM:SS
+    desc: 表头 批次名称、卡密、有效时长（天）、可用次数、签发时间；批次名称未命名时该列为空；设备激活 product 的可用次数列为空；按次数 product 有有效时长时填天数、历史未设时长的为空，可用次数列为 uses；签发时间为本地时间 YYYY-MM-DD HH:MM:SS
   - name: keys.services.check_code
     type: BatchInfo
     desc: 卡密所属批次；有效时长取 duration_days，可用次数取 uses
@@ -81,6 +81,7 @@ contract:
   - check_code 依次检查：卡密格式、批次存在、序号不超过批次数量、校验码有效（任一不满足均为 CODE_INVALID），再检查批次未禁用；不检查 product 是否禁用
   - 修改 product 换设备策略后，下一次读取 product 即为新策略
   - 批次的有效时长与可用次数签发后不可修改
+  - 批次名称仅用于后台展示与导出，不参与卡密生成、激活与核销；签发后不可修改，未命名批次导出 CSV 时批次名称列为空
 depends: []
 errors:
   - code: REQUEST_INVALID
@@ -107,4 +108,5 @@ tests:
   - 签发的卡密经 check_code 返回所属批次与有效时长；带空白、连字符、小写的输入同样通过
   - 篡改的卡密、格式错误的字符串、不存在批次的卡密、序号超出批次数量的卡密返回 CODE_INVALID；更换服务端密钥后返回 CODE_INVALID
   - 禁用批次后返回 BATCH_DISABLED
-  - 重新导出的卡密与签发时一致，CSV 列顺序正确；按批次导出只含该批次，其它 product 的批次返回 BATCH_NOT_FOUND
+  - 重新导出的卡密与签发时一致，CSV 列顺序正确（首列为批次名称）；按批次导出只含该批次，其它 product 的批次返回 BATCH_NOT_FOUND
+  - 签发时给批次命名，BatchInfo 返回去空白后的名称，批次列表与导出 CSV 均带该名称；省略或传纯空白时为未命名（batch_name 为 None、CSV 名称列为空）；名称超过 50 字返回 REQUEST_INVALID

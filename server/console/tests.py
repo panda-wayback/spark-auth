@@ -1,3 +1,5 @@
+import csv
+import io
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -13,6 +15,10 @@ from redeem import services as redeem_services
 PASSWORD = "correct-horse-battery"
 DEVICE_A = "a" * 64
 DEVICE_B = "b" * 64
+
+
+def csv_codes(content):
+    return [row[1] for row in csv.reader(io.StringIO(content))][1:]
 
 
 def activate(product, code, device=DEVICE_B, device_info="pc-b"):
@@ -173,9 +179,48 @@ class CodePageTests(ConsoleTestCase):
         (batch,) = keys_services.list_batches(self.product.id)
         self.assertEqual((batch.count, batch.duration_days), (50, 30))
         self.assertEqual(keys_services.list_batches(self.other.id), [])
-        first_code = keys_services.export_codes_csv(self.product.id).splitlines()[1].split(",")[0]
+        first_code = csv_codes(keys_services.export_codes_csv(self.product.id))[0]
         self.assertContains(resp, first_code)
         self.assertEqual(activation_services.count_by_product(), {})
+
+    def test_issue_with_batch_name(self):
+        resp = self.client.post(
+            self.url("key_issue", self.product.id),
+            {"count": 2, "duration_days": 30, "batch_name": "  双11推广  "},
+        )
+        self.assertEqual(resp.status_code, 200)
+        (batch,) = keys_services.list_batches(self.product.id)
+        self.assertEqual(batch.batch_name, "双11推广")
+        self.assertContains(resp, "双11推广")
+        resp = self.client.get(self.url("batches", self.product.id))
+        self.assertContains(resp, "双11推广")
+
+    def test_issue_with_blank_batch_name_is_unnamed(self):
+        self.client.post(
+            self.url("key_issue", self.product.id),
+            {"count": 1, "duration_days": 30, "batch_name": "   "},
+            follow=True,
+        )
+        (batch,) = keys_services.list_batches(self.product.id)
+        self.assertIsNone(batch.batch_name)
+        content = self.client.get(self.url("key_export", self.product.id)).content.decode("utf-8-sig")
+        self.assertTrue(content.splitlines()[1].startswith(","))
+
+    def test_issue_batch_name_too_long_shows_error(self):
+        resp = self.client.post(
+            self.url("key_issue", self.product.id),
+            {"count": 1, "duration_days": 30, "batch_name": "x" * 51},
+            follow=True,
+        )
+        self.assertContains(resp, "50")
+        self.assertEqual(keys_services.list_batches(self.product.id), [])
+
+    def test_export_csv_has_batch_name_column(self):
+        keys_services.issue_codes(self.product.id, 30, 1, batch_name="双11推广")
+        content = self.client.get(self.url("key_export", self.product.id)).content.decode("utf-8-sig")
+        rows = list(csv.reader(io.StringIO(content)))
+        self.assertEqual(rows[0][0], "批次名称")
+        self.assertEqual(rows[1][0], "双11推广")
 
     def test_issue_over_limit_shows_error(self):
         resp = self.client.post(
@@ -268,7 +313,7 @@ class CountProductTests(ConsoleTestCase):
         self.assertContains(resp, "3 次")
         self.assertContains(resp, "30 天")
 
-        codes = [row.split(",")[0] for row in keys_services.export_codes_csv(self.counted.id).splitlines()[1:]]
+        codes = csv_codes(keys_services.export_codes_csv(self.counted.id))
         redeem_services.redeem(codes[0])
         redeem_services.redeem(codes[0])
         redeem_services.redeem(codes[1])

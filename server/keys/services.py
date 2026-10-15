@@ -17,7 +17,8 @@ USES_MAX = 10000
 PRODUCT_CODE_MAX = 64
 PRODUCT_NAME_MAX = 128
 PRODUCT_KINDS = ("device", "count")
-EXPORT_HEADER = ["卡密", "有效时长（天）", "可用次数", "签发时间"]
+BATCH_NAME_MAX = 50
+EXPORT_HEADER = ["批次名称", "卡密", "有效时长（天）", "可用次数", "签发时间"]
 
 _PRODUCT_CODE = re.compile(r"^[-a-zA-Z0-9_]+$")
 
@@ -50,6 +51,7 @@ class BatchInfo:
     duration_days: int | None
     uses: int | None
     count: int
+    batch_name: str | None
     disabled: bool
     created_at: datetime
 
@@ -75,6 +77,7 @@ def _batch_info(batch):
         batch.duration_days,
         batch.uses,
         batch.count,
+        batch.name or None,
         batch.disabled,
         batch.created_at,
     )
@@ -165,8 +168,20 @@ def _batch_codes(batch):
     return [codes.sign(batch.batch_id, batch.secret, serial) for serial in range(1, batch.count + 1)]
 
 
-def issue_codes(product_id, duration_days, count=1, uses=None):
+def _normalize_batch_name(batch_name):
+    if batch_name is None:
+        return ""
+    if not isinstance(batch_name, str):
+        raise ServiceError("REQUEST_INVALID", f"批次名称不超过 {BATCH_NAME_MAX} 个字符")
+    batch_name = batch_name.strip()
+    if len(batch_name) > BATCH_NAME_MAX:
+        raise ServiceError("REQUEST_INVALID", f"批次名称不超过 {BATCH_NAME_MAX} 个字符")
+    return batch_name
+
+
+def issue_codes(product_id, duration_days, count=1, uses=None, batch_name=None):
     product = _product(product_id)
+    batch_name = _normalize_batch_name(batch_name)
     if not isinstance(count, int) or not 1 <= count <= BATCH_MAX:
         raise ServiceError("BATCH_COUNT_INVALID", f"生成数量必须在 1 到 {BATCH_MAX} 之间")
     if product.kind == "count":
@@ -184,6 +199,7 @@ def issue_codes(product_id, duration_days, count=1, uses=None):
     batch = Batch.objects.create(
         batch_id=_new_batch_id(),
         secret=codes.new_batch_secret(),
+        name=batch_name,
         product=product,
         duration_days=duration_days,
         uses=uses,
@@ -219,7 +235,7 @@ def export_codes_csv(product_id, batch_id=None):
     for batch in batches:
         issued = timezone.localtime(batch.created_at).strftime("%Y-%m-%d %H:%M:%S")
         for code in _batch_codes(batch):
-            writer.writerow([code, batch.duration_days or "", batch.uses or "", issued])
+            writer.writerow([batch.name, code, batch.duration_days or "", batch.uses or "", issued])
     return buffer.getvalue()
 
 

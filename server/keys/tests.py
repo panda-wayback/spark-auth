@@ -87,7 +87,7 @@ class IssueTests(KeysTestCase):
         week, _ = services.issue_codes(product.id, 7, 1, uses=5)
         self.assertEqual(week.duration_days, 7)
         rows = list(csv.reader(io.StringIO(services.export_codes_csv(product.id, batch.batch_id))))
-        self.assertEqual([(r[1], r[2]) for r in rows[1:]], [("30", "1"), ("30", "1")])
+        self.assertEqual([(r[2], r[3]) for r in rows[1:]], [("30", "1"), ("30", "1")])
         for duration_days, uses in ((None, None), (None, 0), (None, 10001), (0, 5), (36501, 5)):
             self.assertCode("REQUEST_INVALID", services.issue_codes, product.id, duration_days, 1, uses)
         self.assertEqual(len(services.list_batches(product.id)), 3)
@@ -98,7 +98,18 @@ class IssueTests(KeysTestCase):
         batch, _ = services.issue_codes(self.product.id, 30, 1)
         self.assertIsNone(batch.uses)
         rows = list(csv.reader(io.StringIO(services.export_codes_csv(self.product.id))))
-        self.assertEqual((rows[1][1], rows[1][2]), ("30", ""))
+        self.assertEqual((rows[1][2], rows[1][3]), ("30", ""))
+
+    def test_batch_name(self):
+        batch, _ = services.issue_codes(self.product.id, 30, 1, batch_name="  双11推广 ")
+        self.assertEqual(batch.batch_name, "双11推广")
+        unnamed, _ = services.issue_codes(self.product.id, 30, 1)
+        self.assertIsNone(unnamed.batch_name)
+        blank, _ = services.issue_codes(self.product.id, 30, 1, batch_name="   ")
+        self.assertIsNone(blank.batch_name)
+        for bad in ("x" * 51, 123):
+            self.assertCode("REQUEST_INVALID", services.issue_codes, self.product.id, 30, 1, None, bad)
+        self.assertEqual([b.batch_name for b in services.list_batches(self.product.id)], [None, None, "双11推广"])
 
     def test_disable_is_one_way(self):
         batch, _ = services.issue_codes(self.product.id, 30, 1)
@@ -161,11 +172,21 @@ class ExportTests(KeysTestCase):
 
         rows = self.rows(product.id, first.batch_id)
         self.assertEqual(rows[0], services.EXPORT_HEADER)
-        self.assertEqual([r[0] for r in rows[1:]], first_codes)
-        self.assertEqual(rows[1][1], "30")
+        self.assertEqual([r[1] for r in rows[1:]], first_codes)
+        self.assertEqual(rows[1][2], "30")
 
         rows = self.rows(product.id)
-        self.assertEqual([r[0] for r in rows[1:]], first_codes + second_codes)
+        self.assertEqual([r[1] for r in rows[1:]], first_codes + second_codes)
+
+    def test_export_batch_name_column(self):
+        product = services.create_product("software-a", "A")
+        named, named_codes = services.issue_codes(product.id, 30, 2, batch_name="双11推广")
+        _, unnamed_codes = services.issue_codes(product.id, 7, 1)
+        rows = self.rows(product.id)
+        self.assertEqual(rows[0], services.EXPORT_HEADER)
+        self.assertEqual([r[0] for r in rows[1:]], ["双11推广", "双11推广", ""])
+        rows = self.rows(product.id, named.batch_id)
+        self.assertEqual([r[1] for r in rows[1:]], named_codes)
 
     def test_other_product_batch_not_found(self):
         product = services.create_product("software-a", "A")

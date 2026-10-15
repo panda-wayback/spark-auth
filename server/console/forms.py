@@ -53,6 +53,9 @@ class ProductCreateForm(ProductEditForm):
 
 
 class IssueCodesForm(forms.Form):
+    batch_name = forms.CharField(
+        label="批次名称", max_length=50, required=False, help_text="选填，只在批次列表与导出 CSV 中显示，方便辨认本批卡密"
+    )
     count = forms.IntegerField(label="数量", initial=1)
     duration_days = forms.IntegerField(
         label="有效天数", min_value=1, initial=30, required=False, help_text=DURATION_HELP_TEXT

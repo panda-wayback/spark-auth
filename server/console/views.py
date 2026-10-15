@@ -173,7 +173,13 @@ def key_issue(request, pk):
     else:
         duration_days, uses = form.cleaned_data["duration_days"], None
     try:
-        batch, codes = keys_services.issue_codes(pk, duration_days, form.cleaned_data["count"], uses)
+        batch, codes = keys_services.issue_codes(
+            pk,
+            duration_days,
+            form.cleaned_data["count"],
+            uses,
+            batch_name=form.cleaned_data["batch_name"],
+        )
     except ServiceError as exc:
         messages.error(request, exc.message)
         return redirect("console:keys", pk=pk)

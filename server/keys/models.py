@@ -26,6 +26,7 @@ class Product(models.Model):
 class Batch(models.Model):
     batch_id = models.CharField("批次标识", max_length=10, unique=True)
     secret = models.CharField("批次随机值", max_length=32)
+    name = models.CharField("批次名称", max_length=50, blank=True, default="")
     product = models.ForeignKey(Product, verbose_name="所属软件", on_delete=models.PROTECT, related_name="batches")
     duration_days = models.PositiveIntegerField(
         "卡密有效时长（天）", null=True, blank=True, validators=[MinValueValidator(1)]

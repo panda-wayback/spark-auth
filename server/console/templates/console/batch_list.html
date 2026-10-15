@@ -11,9 +11,10 @@
 
 {% if batches %}
 <table>
-  <tr><th>批次标识</th><th>生成时间</th><th>数量</th><th>有效时长</th>{% if product.kind == "count" %}<th>可用次数</th>{% endif %}<th>状态</th><th></th></tr>
+  <tr><th>批次名称</th><th>批次标识</th><th>生成时间</th><th>数量</th><th>有效时长</th>{% if product.kind == "count" %}<th>可用次数</th>{% endif %}<th>状态</th><th></th></tr>
   {% for batch in batches %}
   <tr>
+    <td class="nowrap">{% if batch.batch_name %}{{ batch.batch_name }}{% else %}<span class="muted">未命名批次</span>{% endif %}</td>
     <td class="mono">{{ batch.batch_id }}</td>
     <td class="nowrap">{{ batch.created_at|date:"Y-m-d H:i" }}</td>
     <td>{{ batch.count }}</td>
