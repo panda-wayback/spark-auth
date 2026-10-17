@@ -1,5 +1,5 @@
 name: redeem
-function: 按次数卡密的核销记录数据、状态查询与核销接口、后台按卡密汇总与明细查询
+function: 按次数卡密的核销记录数据、状态查询与核销接口、后台按卡密汇总与明细查询、单卡禁用
 modules: []
 input:
   - name: POST /api/redeem/status
@@ -17,12 +17,15 @@ input:
   - name: redeem.services.get_code_detail
     type: (code)；str，可带空白与连字符，大小写不限
     desc: 取一个卡密的汇总与它的全部核销记录
+  - name: redeem.services.toggle_disabled
+    type: (code)；str，可带空白与连字符，大小写不限
+    desc: 禁用或取消禁用一张已核销卡密
   - name: redeem.services.count_in_use_by_product
     type: ()
-    desc: 统计各 product 使用中（已核销、次数未用完且未到期）的卡密数
+    desc: 统计各 product 使用中（已核销、未禁用、次数未用完且未到期）的卡密数
   - name: redeem.services.delete_by_product
     type: (product_code)；str
-    desc: 删除 product 的全部核销记录，供删除 product 时调用
+    desc: 删除 product 的全部核销记录与卡密状态，供删除 product 时调用
 output:
   - name: POST /api/redeem/status
     type: JSON {ok:true, uses, used, remaining, expires_at, expired}
@@ -41,10 +44,13 @@ output:
     desc: product 标识 → 核销记录数（即已使用总次数）；没有核销记录的 product 不出现
   - name: redeem.services.search
     type: list[CodeUsage]
-    desc: CodeUsage 字段 code（标准卡密）、product_code、used（已核销次数）、uses（可用次数）、duration_days（批次有效天数，历史未设可为 None）、first_redeemed_at、last_redeemed_at、expires_at（首次核销 + 有效时长，未设时长为 None）；只读属性 remaining（= uses - used，可为负）、expired（已起算且已过到期时间）、status（剩余 ≤ 0 为已用完，否则已到期为已到期，否则使用中）
+    desc: CodeUsage 字段 code（标准卡密）、product_code、used（已核销次数）、uses（可用次数）、duration_days（批次有效天数，历史未设可为 None）、first_redeemed_at、last_redeemed_at、disabled、expires_at（首次核销 + 有效时长，未设时长为 None）；只读属性 remaining（= uses - used，可为负）、expired（已起算且已过到期时间）、status（已禁用优先，否则剩余 ≤ 0 为已用完，否则已到期为已到期，否则使用中）
   - name: redeem.services.get_code_detail
     type: (CodeUsage, list[RedemptionInfo])
     desc: RedemptionInfo 字段 code（标准卡密）、product_code、seq（第几次，从 1 开始，超用时可大于 uses）、uses、redeemed_at、ip（核销 IP，旧记录为 None），只读属性 remaining（= uses - seq）；新记录在前
+  - name: redeem.services.toggle_disabled
+    type: CodeUsage
+    desc: 切换后的卡密汇总（含 disabled 与 status）
   - name: redeem.services.count_in_use_by_product
     type: dict[str, int]
     desc: product 标识 → 使用中的卡密数；没有使用中卡密的 product 不出现
@@ -53,7 +59,7 @@ output:
     desc: 删除的核销记录数
 contract:
   - 状态查询与核销接口无需登录
-  - 状态查询与核销均先检查：卡密经 server/keys 验证通过（批次存在、序号在批次数量内、校验码有效、批次未禁用），所属 product 未禁用且类型为 count；状态查询不写核销记录、不起算有效时长
+  - 状态查询与核销均先检查：卡密经 server/keys 验证通过（批次存在、序号在批次数量内、校验码有效、批次未禁用），所属 product 未禁用且类型为 count，且该卡密未被管理员禁用；状态查询不写核销记录、不起算有效时长
   - 核销 count 省略时按 1；count 须为正整数且不超过 1000，否则 REQUEST_INVALID
   - 有效时长取自批次 duration_days；为空则不过期（兼容历史批次）。已有核销记录时到期时间 = 首次核销时间 + 有效时长；从未核销则无到期时间
   - 核销时若已起算且已到期：返回 CODE_EXPIRED，不写记录
@@ -62,7 +68,8 @@ contract:
   - 0 < 剩余 < count 且未到期时为超额（异常）：写入 count 条核销记录（seq 可超过可用次数，内部记超用），卡密作废，返回 CODE_USED；接入方不得当作核销成功
   - 每次写入的核销记录含核销 IP，取请求的 REMOTE_ADDR（代理头由 server 统一处理），只供查看、不参与判定
   - 同一卡密并发核销时不得重复卖出剩余次数；超额、用尽或到期后卡密作废
-  - 核销记录只追加，不能修改，只能经 delete_by_product 按 product 整体删除；只能经本 Module 读写
+  - 核销记录只追加，不能修改；单卡禁用状态单独保存，可经 toggle_disabled 往返切换；两者只能经 delete_by_product 按 product 整体删除；只能经本 Module 读写
+  - toggle_disabled 仅作用于已有核销记录的卡密；从未核销的卡密返回 REDEMPTION_NOT_FOUND
 depends:
   - server/keys
 errors:
@@ -72,6 +79,8 @@ errors:
     desc: 卡密可用次数已用完，或本次扣减超过剩余（已记超用并废卡）
   - code: CODE_EXPIRED
     desc: 卡密已到期（仍有剩余次数也不可再核销）
+  - code: CODE_DISABLED
+    desc: 卡密已被管理员禁用
   - code: CODE_INVALID
     desc: 卡密格式错误、所属批次不存在、序号超出批次数量或校验码无效
   - code: BATCH_DISABLED
@@ -81,7 +90,7 @@ errors:
   - code: CODE_TYPE_MISMATCH
     desc: 卡密属于设备激活 product，不能核销
   - code: REDEMPTION_NOT_FOUND
-    desc: get_code_detail 的卡密没有核销记录
+    desc: get_code_detail / toggle_disabled 的卡密没有核销记录
 tests:
   - 可用 1 次的卡密核销成功返回 remaining 0、核销时间与 expires_at，写入一条 seq 为 1 的核销记录；再次核销返回 CODE_USED，带空白、连字符、小写的同一卡密也返回 CODE_USED
   - 可用 3 次的卡密依次核销返回 remaining 2、1、0，第 4 次返回 CODE_USED，共 3 条核销记录且 seq 为 1、2、3
@@ -89,9 +98,10 @@ tests:
   - status 对从未核销的卡密返回 used 0、remaining 等于可用次数、expires_at null、expired false；核销部分后 used/remaining/expires_at 正确；参数非法返回 REQUEST_INVALID；设备激活卡密返回 CODE_TYPE_MISMATCH
   - 批次有有效时长时首次核销后 expires_at = 首次核销时间 + 有效时长；模拟到期后核销返回 CODE_EXPIRED 且不写记录，status 返回 expired true 与 remaining > 0；历史 duration_days 为空的批次核销不过期
   - count 省略或为 1 与只扣 1 次相同；count 为 0、负数、非整数或大于 1000 返回 REQUEST_INVALID（400）且不写记录
-  - 伪造或篡改的卡密返回 CODE_INVALID；批次禁用返回 BATCH_DISABLED；product 禁用返回 PRODUCT_DISABLED；均不写核销记录
+  - 伪造或篡改的卡密返回 CODE_INVALID；批次禁用返回 BATCH_DISABLED；product 禁用返回 PRODUCT_DISABLED；卡密禁用返回 CODE_DISABLED；均不写核销记录
   - 设备激活 product 的卡密返回 CODE_TYPE_MISMATCH
   - 接口参数缺失或请求体不是 JSON 对象返回 REQUEST_INVALID（400）；成功响应含 remaining 与 expires_at；核销记录的 ip 为请求来源 IP
-  - count_in_use_by_product 只统计已核销、次数未用完且未到期的卡密（超用与已到期不算使用中）；delete_by_product 只删除该 product 的核销记录
-  - count_by_product 按 product 统计核销记录数；search 只返回该 product 的卡密，每个卡密一项（used、首次与最近核销时间、expires_at、使用中 / 已用完 / 已到期），可按带连字符的小写卡密搜索
+  - count_in_use_by_product 只统计已核销、未禁用、次数未用完且未到期的卡密（超用、已到期与已禁用不算使用中）；delete_by_product 只删除该 product 的核销记录与卡密状态
+  - count_by_product 按 product 统计核销记录数；search 只返回该 product 的卡密，每个卡密一项（used、首次与最近核销时间、expires_at、使用中 / 已用完 / 已到期 / 已禁用），可按带连字符的小写卡密搜索
   - get_code_detail 返回汇总与全部核销记录（seq 从大到小）；没有核销记录的卡密返回 REDEMPTION_NOT_FOUND
+  - toggle_disabled 往返切换 disabled 与 status；禁用后 redeem 与 status 返回 CODE_DISABLED；取消禁用后可再核销；没有核销记录的卡密返回 REDEMPTION_NOT_FOUND

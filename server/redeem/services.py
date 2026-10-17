@@ -9,7 +9,7 @@ from keys import codes
 from keys import services as keys_services
 from keys.errors import ServiceError
 
-from .models import Redemption
+from .models import CodeState, Redemption
 
 MAX_REDEEM_COUNT = 1000
 
@@ -37,6 +37,7 @@ class CodeUsage:
     duration_days: int | None
     first_redeemed_at: datetime
     last_redeemed_at: datetime
+    disabled: bool = False
 
     @property
     def remaining(self):
@@ -52,6 +53,8 @@ class CodeUsage:
 
     @property
     def status(self):
+        if self.disabled:
+            return "已禁用"
         if self.remaining <= 0:
             return "已用完"
         if self.expired:
@@ -98,8 +101,14 @@ def _is_expired(expires_at, now=None):
     return (now or timezone.now()) > expires_at
 
 
+def _disabled_codes(code_list):
+    if not code_list:
+        return set()
+    return set(CodeState.objects.filter(code__in=code_list, disabled=True).values_list("code", flat=True))
+
+
 def _usages(redemptions):
-    rows = (
+    rows = list(
         redemptions.order_by()
         .values("code", "product_code", "uses")
         .annotate(
@@ -110,6 +119,7 @@ def _usages(redemptions):
         )
         .order_by("-last", "code")
     )
+    disabled = _disabled_codes([r["code"] for r in rows])
     return [
         CodeUsage(
             r["code"],
@@ -119,6 +129,7 @@ def _usages(redemptions):
             r["duration_days"],
             r["first"],
             r["last"],
+            r["code"] in disabled,
         )
         for r in rows
     ]
@@ -151,6 +162,8 @@ def _checked_count_batch(code):
         raise ServiceError("PRODUCT_DISABLED", "软件已禁用")
     if product.kind != "count":
         raise ServiceError("CODE_TYPE_MISMATCH", "设备激活卡密不能核销")
+    if CodeState.objects.filter(code=code, disabled=True).exists():
+        raise ServiceError("CODE_DISABLED", "卡密已禁用")
     return code, batch, product
 
 
@@ -217,7 +230,7 @@ def count_by_product():
 
 
 def count_in_use_by_product():
-    rows = (
+    rows = list(
         Redemption.objects.order_by()
         .values("product_code", "code", "uses")
         .annotate(used=Count("id"), first=Min("redeemed_at"), duration_days=Max("duration_days"))
@@ -225,7 +238,10 @@ def count_in_use_by_product():
     )
     counts = {}
     now = timezone.now()
+    disabled = _disabled_codes([row["code"] for row in rows])
     for row in rows:
+        if row["code"] in disabled:
+            continue
         if _is_expired(_expires_at(row["first"], row["duration_days"]), now):
             continue
         counts[row["product_code"]] = counts.get(row["product_code"], 0) + 1
@@ -234,6 +250,7 @@ def count_in_use_by_product():
 
 def delete_by_product(product_code):
     deleted, _ = Redemption.objects.filter(product_code=product_code).delete()
+    CodeState.objects.filter(product_code=product_code).delete()
     return deleted
 
 
@@ -251,3 +268,18 @@ def get_code_detail(code):
     if not usages:
         raise ServiceError("REDEMPTION_NOT_FOUND", "该卡密没有核销记录")
     return usages[0], [_info(r) for r in redemptions.order_by("-seq")]
+
+
+def toggle_disabled(code):
+    code = codes.normalize(code)
+    first = Redemption.objects.filter(code=code).order_by("seq", "id").first()
+    if first is None:
+        raise ServiceError("REDEMPTION_NOT_FOUND", "该卡密没有核销记录")
+    state, created = CodeState.objects.get_or_create(
+        code=code,
+        defaults={"product_code": first.product_code, "disabled": True},
+    )
+    if not created:
+        state.disabled = not state.disabled
+        state.save(update_fields=["disabled"])
+    return get_code_detail(code)[0]

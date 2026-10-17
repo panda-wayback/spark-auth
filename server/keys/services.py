@@ -213,6 +213,13 @@ def list_batches(product_id):
     return [_batch_info(b) for b in _product(product_id).batches.select_related("product")]
 
 
+def get_batch_codes(product_id, batch_id):
+    batch = _product(product_id).batches.select_related("product").filter(batch_id=batch_id).first()
+    if batch is None:
+        raise ServiceError("BATCH_NOT_FOUND", "批次不存在")
+    return _batch_info(batch), _batch_codes(batch)
+
+
 def disable_batch(batch_id):
     batch = Batch.objects.select_related("product").filter(batch_id=batch_id).first()
     if batch is None:

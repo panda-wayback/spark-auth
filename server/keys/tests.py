@@ -117,6 +117,15 @@ class IssueTests(KeysTestCase):
         self.assertTrue(services.disable_batch(batch.batch_id).disabled)
         self.assertCode("BATCH_NOT_FOUND", services.disable_batch, "0" * 10)
 
+    def test_get_batch_codes_matches_issue(self):
+        batch, issued = services.issue_codes(self.product.id, 30, 3)
+        again_batch, again = services.get_batch_codes(self.product.id, batch.batch_id)
+        self.assertEqual(again_batch.batch_id, batch.batch_id)
+        self.assertEqual(again, issued)
+        other = services.create_product("software-b", "B")
+        self.assertCode("BATCH_NOT_FOUND", services.get_batch_codes, other.id, batch.batch_id)
+        self.assertCode("BATCH_NOT_FOUND", services.get_batch_codes, self.product.id, "0" * 10)
+
 
 class CheckCodeTests(KeysTestCase):
     def setUp(self):

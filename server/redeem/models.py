@@ -26,3 +26,18 @@ class Redemption(models.Model):
 
     def delete(self, *args, **kwargs):
         raise PermissionError("核销记录只追加，不能删除")
+
+
+class CodeState(models.Model):
+    """已核销卡密的管理状态（禁用等）；与只追加的核销记录分开，避免改历史记录。"""
+
+    code = models.CharField("卡密", max_length=64, unique=True)
+    product_code = models.CharField("软件标识", max_length=64, db_index=True)
+    disabled = models.BooleanField("禁用", default=False)
+
+    class Meta:
+        verbose_name = "卡密状态"
+        verbose_name_plural = "卡密状态"
+
+    def __str__(self):
+        return f"{self.code}{' 已禁用' if self.disabled else ''}"

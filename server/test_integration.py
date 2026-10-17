@@ -54,7 +54,9 @@ class EndToEndTests(TestCase):
         return [row[1] for row in csv.reader(io.StringIO(resp.content.decode("utf-8-sig")))][1:]
 
     def issue(self, product, count=1, days=30):
-        resp = self.console.post(reverse("console:key_issue", args=[product.id]), {"count": count, "duration_days": days})
+        resp = self.console.post(
+            reverse("console:key_issue", args=[product.id]), {"count": count, "duration_days": days}, follow=True
+        )
         self.assertEqual(resp.status_code, 200)
         return self.export(product, keys_services.list_batches(product.id)[0].batch_id)
 
@@ -85,6 +87,7 @@ class EndToEndTests(TestCase):
         resp = self.console.post(
             reverse("console:key_issue", args=[product.id]),
             {"count": 3, "duration_days": 30, "batch_name": "双11推广"},
+            follow=True,
         )
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(keys_services.list_batches(product.id)[0].batch_name, "双11推广")
@@ -141,7 +144,9 @@ class EndToEndTests(TestCase):
     def test_count_code_redeemed_until_used_up(self):
         product = self.create_product("download-service", kind="count")
         resp = self.console.post(
-            reverse("console:key_issue", args=[product.id]), {"count": 1, "uses": 2, "duration_days": 30}
+            reverse("console:key_issue", args=[product.id]),
+            {"count": 1, "uses": 2, "duration_days": 30},
+            follow=True,
         )
         self.assertEqual(resp.status_code, 200)
         code = self.export(product)[0]
@@ -160,7 +165,9 @@ class EndToEndTests(TestCase):
 
         product = self.create_product("download-service", kind="count")
         resp = self.console.post(
-            reverse("console:key_issue", args=[product.id]), {"count": 1, "uses": 5, "duration_days": 30}
+            reverse("console:key_issue", args=[product.id]),
+            {"count": 1, "uses": 5, "duration_days": 30},
+            follow=True,
         )
         self.assertEqual(resp.status_code, 200)
         code = self.export(product)[0]
@@ -177,6 +184,25 @@ class EndToEndTests(TestCase):
         self.assertEqual(status["remaining"], 4)
         resp = self.console.get(reverse("console:keys", args=[product.id]))
         self.assertContains(resp, "已到期")
+
+    def test_disable_count_code_then_delete_product(self):
+        product = self.create_product("download-service", kind="count")
+        self.console.post(
+            reverse("console:key_issue", args=[product.id]),
+            {"count": 1, "uses": 5, "duration_days": 30},
+            follow=True,
+        )
+        code = self.export(product)[0]
+        self.assertEqual(self.call("redeem", code=code).json()["remaining"], 4)
+        norm = code.replace("-", "")
+        self.console.post(reverse("console:redemption_toggle", args=[norm]))
+        self.assertEqual(self.call("redeem", code=code).json()["error"]["code"], "CODE_DISABLED")
+        self.assertEqual(self.call("redeem/status", code=code).json()["error"]["code"], "CODE_DISABLED")
+        self.console.post(reverse("console:redemption_toggle", args=[norm]))
+        self.assertEqual(self.call("redeem", code=code).json()["remaining"], 3)
+        self.console.post(reverse("console:redemption_toggle", args=[norm]))
+        self.console.post(reverse("console:product_delete", args=[product.id]))
+        self.assertEqual([p.code for p in keys_services.list_products()], [])
 
     def test_ip_from_proxy_shown_in_console(self):
         device_code = self.issue(self.create_product("software-a", allow_transfer=True))[0]

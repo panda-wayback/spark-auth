@@ -11,7 +11,7 @@
 
 <div class="card actions">
   <strong>签发卡密</strong>
-  <form method="post" action="{% url 'console:key_issue' product.id %}">
+  <form method="post" action="{% url 'console:key_issue' product.id %}" onsubmit="var b=this.querySelector('button[type=submit]'); if(b.disabled) return false; b.disabled=true; b.textContent='签发中…';">
     {% csrf_token %}
     {% if product.kind == "count" %}
     批次名称 {{ issue_form.batch_name }}
@@ -130,7 +130,7 @@
 <div class="scroll">
 <table>
   {% if product.kind == "count" %}
-  <tr><th>卡密</th><th>状态</th><th>已用 / 可用</th><th>首次核销</th><th>最近核销</th><th>到期时间</th></tr>
+  <tr><th>卡密</th><th>状态</th><th>已用 / 可用</th><th>首次核销</th><th>最近核销</th><th>到期时间</th><th></th></tr>
   {% for usage in page.object_list %}
   <tr>
     <td class="mono nowrap"><a href="{% url 'console:redemption_detail' usage.code %}">{{ usage.code }}</a></td>
@@ -139,6 +139,13 @@
     <td class="nowrap">{{ usage.first_redeemed_at|date:"Y-m-d H:i:s" }}</td>
     <td class="nowrap">{{ usage.last_redeemed_at|date:"Y-m-d H:i:s" }}</td>
     <td class="nowrap">{% if usage.expires_at %}{{ usage.expires_at|date:"Y-m-d H:i" }}{% else %}-{% endif %}</td>
+    <td class="nowrap">
+      <form class="inline" method="post" action="{% url 'console:redemption_toggle' usage.code %}">
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <button class="link" type="submit">{% if usage.disabled %}取消禁用{% else %}禁用{% endif %}</button>
+      </form>
+    </td>
   </tr>
   {% endfor %}
   {% else %}

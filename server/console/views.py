@@ -85,7 +85,7 @@ def product_delete(request, pk):
     product = _call(keys_services.get_product, pk)
     with transaction.atomic():
         if _in_use_counts()[product.kind].get(product.code, 0):
-            messages.error(request, f"{product.name} 还有使用中的卡密，不能删除；可在编辑中禁用")
+            messages.error(request, f"{product.name} 还有使用中的卡密，不能删除；请先在卡密页禁用后再删")
             return redirect("console:products")
         activation_services.delete_by_product(product.code)
         redeem_services.delete_by_product(product.code)
@@ -173,7 +173,7 @@ def key_issue(request, pk):
     else:
         duration_days, uses = form.cleaned_data["duration_days"], None
     try:
-        batch, codes = keys_services.issue_codes(
+        batch, _codes = keys_services.issue_codes(
             pk,
             duration_days,
             form.cleaned_data["count"],
@@ -183,6 +183,14 @@ def key_issue(request, pk):
     except ServiceError as exc:
         messages.error(request, exc.message)
         return redirect("console:keys", pk=pk)
+    # PRG：签发只写库并跳转，避免刷新重复提交；结果页 GET 再生成卡密展示
+    return redirect("console:key_issued", pk=pk, batch_id=batch.batch_id)
+
+
+@admin_required
+def key_issued(request, pk, batch_id):
+    product = _call(keys_services.get_product, pk)
+    batch, codes = _call(keys_services.get_batch_codes, pk, batch_id)
     return render(
         request,
         "console/result.html",
@@ -229,6 +237,15 @@ def activation_toggle(request, pk):
     activation = _call(activation_services.toggle_disabled, pk)
     messages.success(request, f"激活记录已{'禁用' if activation.disabled else '取消禁用'}")
     product = keys_services.get_product_by_code(activation.product_code)
+    return _safe_next(request, redirect("console:keys", pk=product.id))
+
+
+@admin_required
+@require_POST
+def redemption_toggle(request, code):
+    usage = _call(redeem_services.toggle_disabled, code)
+    messages.success(request, f"卡密已{'禁用' if usage.disabled else '取消禁用'}")
+    product = keys_services.get_product_by_code(usage.product_code)
     return _safe_next(request, redirect("console:keys", pk=product.id))
 
 

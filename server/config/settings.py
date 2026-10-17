@@ -70,6 +70,8 @@ DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
         "NAME": DB_PATH,
+        # 多 worker 并发写时避免立刻 database is locked；配合 WAL 降低读者挡写者
+        "OPTIONS": {"timeout": 30},
     }
 }
 

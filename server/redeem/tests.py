@@ -166,9 +166,27 @@ class RedeemServiceTests(RedeemTestCase):
         )
         self.assertEqual(services.count_in_use_by_product(), {"service-a": 1})
 
+        services.toggle_disabled(partial)
+        self.assertEqual(services.count_in_use_by_product(), {})
+
         self.assertEqual(services.delete_by_product("service-a"), 8)
         self.assertEqual(services.search("service-a"), [])
         self.assertEqual(len(services.search("service-b")), 1)
+        self.assertCode("REDEMPTION_NOT_FOUND", services.toggle_disabled, partial)
+
+    def test_toggle_disabled(self):
+        _, (code,) = keys_services.issue_codes(self.product.id, None, 1, uses=3)
+        services.redeem(code)
+        usage = services.toggle_disabled(code)
+        self.assertTrue(usage.disabled)
+        self.assertEqual(usage.status, "已禁用")
+        self.assertCode("CODE_DISABLED", services.redeem, code)
+        self.assertCode("CODE_DISABLED", services.status, code)
+        usage = services.toggle_disabled(" " + code.lower() + " ")
+        self.assertFalse(usage.disabled)
+        self.assertEqual(usage.status, "使用中")
+        self.assertEqual(services.redeem(code).remaining, 1)
+        self.assertCode("REDEMPTION_NOT_FOUND", services.toggle_disabled, self.codes[1])
 
     def test_count_and_search(self):
         other = keys_services.create_product("service-b", "B", kind="count")

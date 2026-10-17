@@ -175,18 +175,24 @@ class CodePageTests(ConsoleTestCase):
 
     def test_issue_for_current_product_only(self):
         resp = self.client.post(self.url("key_issue", self.product.id), {"count": 50, "duration_days": 30})
-        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 302)
         (batch,) = keys_services.list_batches(self.product.id)
         self.assertEqual((batch.count, batch.duration_days), (50, 30))
         self.assertEqual(keys_services.list_batches(self.other.id), [])
+        self.assertEqual(resp["Location"], self.url("key_issued", self.product.id, batch.batch_id))
         first_code = csv_codes(keys_services.export_codes_csv(self.product.id))[0]
+        resp = self.client.get(resp["Location"])
         self.assertContains(resp, first_code)
         self.assertEqual(activation_services.count_by_product(), {})
+        # 刷新结果页不重复签发
+        self.client.get(self.url("key_issued", self.product.id, batch.batch_id))
+        self.assertEqual(len(keys_services.list_batches(self.product.id)), 1)
 
     def test_issue_with_batch_name(self):
         resp = self.client.post(
             self.url("key_issue", self.product.id),
             {"count": 2, "duration_days": 30, "batch_name": "  双11推广  "},
+            follow=True,
         )
         self.assertEqual(resp.status_code, 200)
         (batch,) = keys_services.list_batches(self.product.id)
@@ -305,7 +311,9 @@ class CountProductTests(ConsoleTestCase):
 
     def test_issue_with_uses_and_list_redemptions(self):
         self.assertEqual(self.counted.kind, "count")
-        resp = self.client.post(self.url("key_issue", self.counted.id), {"count": 2, "uses": 3, "duration_days": 30})
+        resp = self.client.post(
+            self.url("key_issue", self.counted.id), {"count": 2, "uses": 3, "duration_days": 30}, follow=True
+        )
         self.assertEqual(resp.status_code, 200)
         (batch,) = keys_services.list_batches(self.counted.id)
         self.assertEqual((batch.count, batch.duration_days, batch.uses), (2, 30, 3))
@@ -357,6 +365,25 @@ class CountProductTests(ConsoleTestCase):
         self.assertEqual(keys_services.get_product(self.counted.id).code, "service-b")
 
         redeem_services.redeem(code)
+        self.client.post(self.url("product_delete", self.counted.id))
+        self.assertEqual([p.code for p in keys_services.list_products()], ["software-a"])
+        self.assertEqual(redeem_services.count_by_product(), {})
+
+    def test_toggle_redemption_then_delete(self):
+        _, (code,) = keys_services.issue_codes(self.counted.id, None, 1, uses=5)
+        redeem_services.redeem(code)
+        norm = code.replace("-", "")
+        resp = self.client.get(self.url("keys", self.counted.id))
+        self.assertContains(resp, "使用中")
+        self.assertContains(resp, "禁用")
+        self.assertNotContains(resp, f'action="{self.url("product_delete", self.counted.id)}"')
+
+        resp = self.client.post(self.url("redemption_toggle", norm), follow=True)
+        self.assertContains(resp, "已禁用")
+        self.assertContains(resp, "取消禁用")
+        resp = self.client.get(self.url("products"))
+        self.assertContains(resp, f'action="{self.url("product_delete", self.counted.id)}"')
+
         self.client.post(self.url("product_delete", self.counted.id))
         self.assertEqual([p.code for p in keys_services.list_products()], ["software-a"])
         self.assertEqual(redeem_services.count_by_product(), {})

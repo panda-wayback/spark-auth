@@ -26,6 +26,9 @@ input:
   - name: keys.services.list_batches
     type: (product_id)
     desc: 列出 product 的全部卡密批次，新批次在前
+  - name: keys.services.get_batch_codes
+    type: (product_id, batch_id)；batch_id 为 str
+    desc: 取某一批次及其全部卡密（与签发时一致，可重复调用）
   - name: keys.services.disable_batch
     type: (batch_id)；str
     desc: 禁用卡密批次；已禁用时不变
@@ -54,6 +57,9 @@ output:
   - name: keys.services.list_batches
     type: list[BatchInfo]
     desc: 卡密批次列表
+  - name: keys.services.get_batch_codes
+    type: (BatchInfo, list[str])
+    desc: 该批次与按序号 1…count 重新生成的卡密，内容与签发时一致
   - name: keys.services.disable_batch
     type: BatchInfo
     desc: 禁用后的批次
@@ -109,4 +115,5 @@ tests:
   - 篡改的卡密、格式错误的字符串、不存在批次的卡密、序号超出批次数量的卡密返回 CODE_INVALID；更换服务端密钥后返回 CODE_INVALID
   - 禁用批次后返回 BATCH_DISABLED
   - 重新导出的卡密与签发时一致，CSV 列顺序正确（首列为批次名称）；按批次导出只含该批次，其它 product 的批次返回 BATCH_NOT_FOUND
+  - get_batch_codes 返回与签发时相同的卡密列表；批次不存在或不属于该 product 返回 BATCH_NOT_FOUND
   - 签发时给批次命名，BatchInfo 返回去空白后的名称，批次列表与导出 CSV 均带该名称；省略或传纯空白时为未命名（batch_name 为 None、CSV 名称列为空）；名称超过 50 字返回 REQUEST_INVALID

@@ -24,11 +24,13 @@ urlpatterns = [
     path("products/<int:pk>/edit/", views.product_edit, name="product_edit"),
     path("products/<int:pk>/delete/", views.product_delete, name="product_delete"),
     path("products/<int:pk>/issue/", views.key_issue, name="key_issue"),
+    path("products/<int:pk>/issued/<str:batch_id>/", views.key_issued, name="key_issued"),
     path("products/<int:pk>/export/", views.key_export, name="key_export"),
     path("products/<int:pk>/batches/", views.batch_list, name="batches"),
     path("activations/<int:pk>/", views.activation_detail, name="activation_detail"),
     path("activations/<int:pk>/toggle/", views.activation_toggle, name="activation_toggle"),
     path("redemptions/<str:code>/", views.redemption_detail, name="redemption_detail"),
+    path("redemptions/<str:code>/toggle/", views.redemption_toggle, name="redemption_toggle"),
     path("batches/<str:batch_id>/disable/", views.batch_disable, name="batch_disable"),
     path("mcp-setup/", views.mcp_setup, name="mcp_setup"),
 ]
